@@ -1,6 +1,9 @@
 *
 !*/
 
+# Executable files
+!*.exe
+
 # Configuration files
 !*.ini
 
@@ -47,7 +50,6 @@
 !*.jpg
 !*.tga
 !*.hdr
-
 !*.horizon
 
 !README

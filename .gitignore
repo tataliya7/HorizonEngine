@@ -1,12 +1,6 @@
 *
 !*/
 
-# Executable files
-!*.exe
-
-# Configuration files
-!*.ini
-
 # C/C++ source files
 !*.c
 !*.cc
@@ -18,12 +12,19 @@
 !*.inc
 !*.cu
 
+# Executable files
+!*.exe
+
+# Configuration files
+!*.ini
+
 # Shader files
 !*.hsf
 
 # Text files
 !*.txt
 !*.md
+!*.pptx
 
 # Script files
 !*.bat

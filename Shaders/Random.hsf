@@ -1,0 +1,41 @@
+// High quality integer hash - this mixes bits almost perfectly
+uint HighQualityIntegerHash(uint x)
+{
+	// From https://github.com/skeeto/hash-prospector
+	// bias = 0.16540778981744320
+	x ^= x >> 16;
+	x *= 0xa812d533;
+	x ^= x >> 15;
+	x *= 0xb278e4ad;
+	x ^= x >> 17;
+	return x;
+}
+
+float Rand(inout uint seed)
+{
+	// Counter based PRNG -- safer than most small-state PRNGs since we use the random values directly here.
+	seed += 1;
+	uint output = HighQualityIntegerHash(seed);
+	// take low 24 bits
+	return (output & 0xFFFFFF) * 5.96046447754e-08; // * 2^-24
+}
+
+float Halton(uint index, uint base)
+{
+	float r = 0.0;
+	float f = 1.0;
+	float invBase = 1.0 / base;
+	while (index > 0)
+	{
+		f *= invBase;
+		r += f * (index % base);
+		index /= base;
+	}
+	return r;
+}
+
+uint RandInit(uint positionSeed, uint timeSeed)
+{
+	uint seed = HighQualityIntegerHash(positionSeed + HighQualityIntegerHash(timeSeed));
+	return seed;
+}

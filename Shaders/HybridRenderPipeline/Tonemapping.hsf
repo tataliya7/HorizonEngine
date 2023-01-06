@@ -1,0 +1,70 @@
+#include "../ShaderCommon.hsf"
+#include "HybridRenderPipelineCommon.hsf"
+#include "PostProcessCommon.hsf"
+
+#define TONEMAPPING_SHADER_PER_FRAME_DATA_SLOT       0
+#define TONEMAPPING_SHADER_SCENE_COLOR_SRV_SLOT      1
+#define TONEMAPPING_SHADER_FINAL_TEXTURE_UAV_SLOT    2
+
+PerFrameData GetPerFrameData()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(TONEMAPPING_SHADER_PER_FRAME_DATA_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<PerFrameData>(bufferIndex & 0xffff);
+}
+
+Texture2D GetSceneColorSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(TONEMAPPING_SHADER_SCENE_COLOR_SRV_SLOT)];
+}
+
+RWTexture2D<float4> GetFinalTextureUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(TONEMAPPING_SHADER_FINAL_TEXTURE_UAV_SLOT)];
+}
+
+// @see: https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
+float3 ACESFilm(float3 x)
+{
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+float3 Tonemap(float3 color, float exposure)
+{
+    color *= exposure;
+    return ACESFilm(color);
+}
+
+float3 GammaCorrection(float3 color, float gamma)
+{
+	return pow(abs(color), 1.0 / gamma);  
+}
+
+[numthreads(POST_PROCESS_THREAD_GROUP_SIZE, POST_PROCESS_THREAD_GROUP_SIZE, 1)]
+void TonemappingCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{
+    PerFrameData perFrameData = GetPerFrameData();
+    uint width = perFrameData.targetResolutionWidth;
+    uint height = perFrameData.targetResolutionHeight;
+    float gamma = perFrameData.gamma;
+    float exposure = perFrameData.exposure;
+    
+    if (GlobalInvocationID.x >= width || GlobalInvocationID.y >= height) 
+	{
+		return;
+	}
+    
+    Texture2D sceneColor = GetSceneColorSRV();
+    RWTexture2D<float4> finalTexture = GetFinalTextureUAV();
+    
+    uint2 coord = GlobalInvocationID.xy;
+	float4 hdrColor = sceneColor[coord];
+    float3 ldrColor = Tonemap(hdrColor.rgb / hdrColor.a, exposure);
+    float3 outColor = GammaCorrection(ldrColor, gamma);
+
+	finalTexture[coord] = float4(outColor, Luma(outColor));
+}

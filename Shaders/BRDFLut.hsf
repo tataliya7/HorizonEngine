@@ -1,0 +1,58 @@
+#include "ShaderCommon.hsf"
+#include "BRDFCommon.hsf"
+
+#define BRDF_LUT_SHADER_BRDF_LUT_UAV_SLOT    0
+
+RWTexture2D<float4> GetBRDFLutUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(BRDF_LUT_SHADER_BRDF_LUT_UAV_SLOT)];
+}
+
+float2 IntegrateBRDF(float NdotV, float roughness)
+{
+    const uint NUM_SAMPLES = 1024;
+
+    float3 V = float3(sqrt(1.0 - NdotV * NdotV), 0.0, NdotV);
+
+    float3 T = 0.0;
+    float3 B = 0.0;
+    float3 N = float3(0.0, 0.0, 1.0);
+    CreateOrthonormalBasis(T, B, N);
+
+    float2 brdf = 0.0;
+    for (uint i = 0; i < NUM_SAMPLES; i++) 
+    {
+        float2 Xi = Hammersley2D(i, NUM_SAMPLES);
+        float3 H = TangentToWorld(ImportanceSampleGGX(Xi, roughness), T, B, N);
+        float3 L = 2.0 * dot(V, H) * H - V;
+
+        float NdotL = clamp(dot(N, L), 0.0, 1.0);
+        float NdotH = clamp(dot(N, H), 0.0, 1.0);
+        float VdotH = clamp(dot(V, H), 0.0, 1.0); 
+
+        if (NdotL > 0.0)
+        {
+            float G = GeometrySchlicksmithGGX(NdotL, NdotV, roughness);
+            float G_Vis = (G * VdotH) / (NdotH * NdotV);
+            float Fc = pow(1.0 - VdotH, 5.0);
+            brdf += float2((1.0 - Fc) * G_Vis, Fc * G_Vis);
+        }
+    }
+    return brdf / float(NUM_SAMPLES);
+}
+
+[numthreads(8, 8, 1)]
+void BRDFLutCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{
+    RWTexture2D<float4> brdfLut = GetBRDFLutUAV();
+    uint width, height;
+    brdfLut.GetDimensions(width, height);
+    if (GlobalInvocationID.x >= width || GlobalInvocationID.y >= height) 
+    {
+        return;
+    }
+    uint2 coord = GlobalInvocationID.xy;
+    float2 uv = (coord + 0.5) / float2(width, height);
+    float4 brdf = float4(IntegrateBRDF(uv.x, 1.0 - uv.y), 0.0, 0.0);
+    brdfLut[coord] = brdf;
+}

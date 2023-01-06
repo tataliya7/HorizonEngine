@@ -1,0 +1,119 @@
+#include "../ShaderCommon.hsf"
+#include "../Random.hsf"
+#include "HybridRenderPipelineCommon.hsf"
+
+#define RAY_TRACING_SHADOWS_SHADER_PER_FRAME_DATA_SLOT       0
+#define RAY_TRACING_SHADOWS_SHADER_TLAS_SLOT                 1
+#define RAY_TRACING_SHADOWS_SHADER_DEPTH_BUFFER_SRV_SLOT     2
+#define RAY_TRACING_SHADOWS_SHADER_SHADOW_MASK_UAV_SLOT      3
+
+PerFrameData GetPerFrameData()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(RAY_TRACING_SHADOWS_SHADER_PER_FRAME_DATA_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<PerFrameData>(bufferIndex & 0xffff);
+}
+
+RaytracingAccelerationStructure GetTopLevelAS()
+{
+	return BindlessASs[SHADER_ARGUMENTS_INDEX(RAY_TRACING_SHADOWS_SHADER_TLAS_SLOT)];
+}
+
+Texture2D GetDepthBufferSRV()
+{
+	return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(RAY_TRACING_SHADOWS_SHADER_DEPTH_BUFFER_SRV_SLOT)];
+}
+
+RWTexture2D<float4> GetShadowMaskUAV()
+{
+	return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(RAY_TRACING_SHADOWS_SHADER_SHADOW_MASK_UAV_SLOT)];
+}
+
+struct ShadowRayPayload
+{
+	float visibility;
+};
+
+float3 UniformSampleCone(float2 randVal, float cosThetaMax) 
+{
+    float cosTheta = (1.0 - randVal.x) + randVal.x * cosThetaMax;
+    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+    float phi = randVal.y * 2.0 * PI;
+    return float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+}
+
+[shader("raygeneration")]
+void RayTracingShadowsRayGen()
+{
+    uint3 launchIndex = DispatchRaysIndex();
+    uint3 launchDim = DispatchRaysDimensions();
+
+    PerFrameData perFrameData = GetPerFrameData();
+    Texture2D depthBuffer = GetDepthBufferSRV();
+    RWTexture2D<float4> shadowMask = GetShadowMaskUAV();
+    RaytracingAccelerationStructure topLevelAS = GetTopLevelAS();
+
+    const uint2 pixelCoord = launchIndex.xy;
+
+    // Skip background pixels
+    const float depth = depthBuffer[pixelCoord].r;
+    if (depth == 1.0)
+    {
+        shadowMask[pixelCoord] = 0.0;
+        return;
+    }
+
+    // Reconstruct world position from the depth buffer
+    float2 pixelCenter = pixelCoord + 0.5;
+    float2 uv = pixelCenter / float2(launchDim.xy);
+    float4 clipSpacePosition = float4(uv * 2.0 - 1.0, depth, 1.0);
+    clipSpacePosition.y = -clipSpacePosition.y;
+    float4 worldSpacePosition = mul(clipSpacePosition, perFrameData.invViewProjectionMatrix);
+    worldSpacePosition /= worldSpacePosition.w;
+
+    uint randSeed = RandInit(launchIndex.x + launchIndex.y * launchDim.x, perFrameData.frameIndex);
+
+    float cosThetaMax = 0.999;
+    // Generate a random direction based on the cone angle. 
+    // @see UniformSampleCone in [pbrt]
+    float3 randDirection = UniformSampleCone(float2(Rand(randSeed), Rand(randSeed)), cosThetaMax);
+
+    float3 N = -perFrameData.sunDirection;
+    float3 B = GetPerpendicularVector(N);
+    float3 T = cross(B, N);
+
+    // float3 T; float3 B;
+    // CreateOrthonormalBasis(T, B, N);
+
+    float3x3 TBN = float3x3(T, B, N);
+    randDirection = mul(randDirection, TBN);
+
+    // Prepare a shadow ray.
+    RayDesc ray;
+    ray.Origin = worldSpacePosition.xyz;
+    ray.Direction = randDirection;
+    ray.TMin = max(0.1, length(worldSpacePosition.xyz)) * 1e-2;
+    ray.TMax = 10000.0;
+
+    uint rayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
+
+    ShadowRayPayload payload;
+    payload.visibility = 0.0;
+
+    TraceRay(
+        topLevelAS,
+        rayFlags,
+        0xff,
+        0,
+        0,
+        0,
+        ray,
+        payload);
+
+    shadowMask[pixelCoord] = payload.visibility;
+}
+
+[shader("miss")]
+void RayTracingShadowsMiss(inout ShadowRayPayload payload : SV_RayPayload)
+{
+    payload.visibility = 1.0;
+}

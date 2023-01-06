@@ -1,0 +1,48 @@
+#include "ShaderCommon.hsf"
+
+#define IMGUI_SHADER_TEXTURE_SRV_SLOT      0
+#define IMGUI_SHADER_VERTEX_BUFFER_SLOT    1
+
+struct ImGuiVertex
+{
+    float2 position;
+    float2 uv;
+    uint color;
+};
+
+struct ImGuiVSToPS
+{
+    float4 position : SV_POSITION;
+    float4 color : COLOR0;
+    float2 texCoord0 : TEXCOORD0;
+};
+
+ImGuiVertex GetVertex(uint index)
+{
+    uint vertexBufferIndex = SHADER_ARGUMENTS_INDEX(IMGUI_SHADER_VERTEX_BUFFER_SLOT);
+    ByteAddressBuffer vertexBuffer = BindlessBuffers[(vertexBufferIndex >> 16) & 0xffff];
+    return vertexBuffer.Load<ImGuiVertex>(((vertexBufferIndex & 0xffff) + index) * sizeof(ImGuiVertex));
+}
+
+Texture2D GetTextureSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(IMGUI_SHADER_TEXTURE_SRV_SLOT)];
+}
+
+void ImGuiVS(uint index : SV_VertexID, out ImGuiVSToPS output)
+{
+    float2 scale = float2(SHADER_ARGUMENTS_DATA(0), SHADER_ARGUMENTS_DATA(1));
+    float2 translate = float2(SHADER_ARGUMENTS_DATA(2), SHADER_ARGUMENTS_DATA(3));
+    
+    ImGuiVertex vertex = GetVertex(index);
+    uint4 packedColor = uint4(vertex.color & 0xff, (vertex.color >> 8) & 0xff, (vertex.color >> 16) & 0xff, (vertex.color >> 24) & 0xff);
+    output.color = float4(packedColor) / 255.0f;
+    output.texCoord0 = vertex.uv;
+    output.position = float4(vertex.position * scale + translate, 0.0f, 1.0f);
+}
+
+void ImGuiPS(ImGuiVSToPS input, out float4 color : SV_TARGET)
+{
+    Texture2D texture = GetTextureSRV();
+    color = input.color * texture.SampleLevel(SAMPLER_LINEAR_WARP, input.texCoord0, 0);
+}

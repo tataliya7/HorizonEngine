@@ -1,0 +1,49 @@
+#include "ShaderCommon.hsf"
+
+#define POST_PROCESSING_THREAD_GROUP_SIZE 8
+
+float3 ACESFilm(float3 x)
+{
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+float3 Tonemap(float3 color, float exposure)
+{
+    color *= exposure;
+    return ACESFilm(color);
+}
+
+float3 GammaCorrection(float3 color, float gamma)
+{
+	return pow(abs(color), 1.0 / gamma);  
+}
+
+[numthreads(POST_PROCESSING_THREAD_GROUP_SIZE, POST_PROCESSING_THREAD_GROUP_SIZE, 1)]
+void ComputeShaderMain(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{
+    Texture2D colorBuffer = BindlessTexture2Ds[0];
+    RWTexture2D<float4> finalBuffer = BindlessRWTexture2Ds[1];
+    
+    uint width = 0;
+	uint height = 0;
+	finalBuffer.GetDimensions(width, height);
+	if (GlobalInvocationID.x >= width || GlobalInvocationID.y >= height) 
+	{
+		return;
+	}
+    
+    int2 coord = int2(GlobalInvocationID.xy);
+    float exposure = 1.4;
+    float gamma = 2.2;
+
+	float4 hdrColor = colorBuffer[coord];
+    float3 ldrColor = Tonemap(hdrColor.rgb, 1.4);
+    float3 outColor = GammaCorrection(ldrColor, 2.2);
+
+	finalBuffer[coord] = float4(outColor, 1.0);
+}

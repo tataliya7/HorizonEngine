@@ -1,0 +1,93 @@
+#include "SkyAtmosphereCommon.hsf"
+
+[numthreads(8, 8, 4)]
+void SkyAtmosphereAerialPerspectiveVolumeCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{  	
+	PerFrameData frameData = GetPerFrameData();
+    SkyAtmosphereConstants constants = GetSkyAtmosphereConstants();
+    AtmosphereParameters atmosphere = GetAtmosphereParameters(constants);
+    RWTexture3D<float4> aerialPerspectiveVolume = GetAerialPerspectiveVolumeUAV();
+	
+	uint size = constants.aerialPerspectiveVolumeSize;
+    uint3 coord = GlobalInvocationID;
+    float2 pixelPos = float2(coord.xy) + 0.5f;
+    float2 uv = pixelPos / size;
+	float4x4 invViewProjectionMatrix = frameData.invViewProjectionMatrix;
+	float3 ClipSpace = float3(uv * float2(2.0f, -2.0f) - float2(1.0f, -1.0f), 0.5f);
+	float4 HPos = mul(float4(ClipSpace, 1.0f), invViewProjectionMatrix);
+	float3 rayDirection = normalize(HPos.xyz / HPos.w - frameData.cameraPosition);
+	float earthR = atmosphere.bottomRadius;
+	float3 earthO = float3(0.0f, 0.0f, -earthR);
+	float3 camPosition = frameData.cameraPosition + float3(0.0f, 0.0f, earthR);
+	float3 sunDirection = normalize(frameData.sunDirection);
+	float3 rayOrigin = camPosition;
+
+	float slice = ((float(coord.z) + 0.5f) / AP_SLICE_COUNT);
+	slice *= slice;	// squared distribution
+	slice *= AP_SLICE_COUNT;
+
+	// Compute position from froxel information
+	float tMax = AerialPerspectiveSliceToDepth(slice);
+	float3 newRayOrigin = rayOrigin + tMax * rayDirection;
+
+	// If the voxel is under the ground, make sure to offset it out on the ground.
+	float viewHeight = length(newRayOrigin);
+	if (viewHeight <= (atmosphere.bottomRadius + PLANET_RADIUS_OFFSET))
+	{
+		// Apply a position offset to make sure no artefact are visible close to the earth boundaries for large voxel.
+		newRayOrigin = normalize(newRayOrigin) * (atmosphere.bottomRadius + PLANET_RADIUS_OFFSET + 0.001f);
+		rayDirection = normalize(newRayOrigin - camPosition);
+		tMax = length(newRayOrigin - camPosition);
+	}
+	float tMaxMax = tMax;
+
+	// Move ray marching start up to top atmosphere.
+	viewHeight = length(rayOrigin);
+	if (viewHeight >= atmosphere.topRadius)
+	{
+		float3 preRayOrigin = rayOrigin;
+		if (!MoveToTopAtmosphere(rayOrigin, rayDirection, atmosphere.topRadius))
+		{
+			// Ray is not intersecting the atmosphere
+			aerialPerspectiveVolume[coord] = float4(0.0f, 0.0f, 0.0f, 1.0f);
+			return;
+		}
+		float lengthToAtmosphere = length(preRayOrigin - rayOrigin);
+		if (tMaxMax < lengthToAtmosphere)
+		{
+			// tMaxMax for this voxel is not within earth atmosphere
+			aerialPerspectiveVolume[coord] = float4(0.0f, 0.0f, 0.0f, 1.0f);
+			return;
+		}
+		// Now world position has been moved to the atmosphere boundary: we need to reduce tMaxMax accordingly. 
+		tMaxMax = max(0.0f, tMaxMax - lengthToAtmosphere);
+	}
+
+	const float depthBufferValue = -1.0f;
+	const bool ground = false;
+	const float sampleCount = max(1.0f, float(coord.z + 1.0f) * 2.0f);
+	const float2 rayMarchMinMaxSPP = float2(constants.rayMarchMinSPP, constants.rayMarchMaxSPP);
+	const float3 sunIlluminanceScale = frameData.sunIlluminanceScale;
+	const bool variableSampleCount = false;  
+	const bool mieRayPhase = true;
+	const bool multiScatApprox = constants.multipleScatteringFactor > 0.0f ? true : false;
+	SingleScatteringResult result = IntegrateScatteredLuminance(
+		uv,
+		depthBufferValue,
+		rayOrigin,
+		rayDirection,
+		sunDirection,
+		atmosphere,
+		ground,
+		sampleCount,
+		rayMarchMinMaxSPP,
+		sunIlluminanceScale, 
+		invViewProjectionMatrix,
+		variableSampleCount,
+		mieRayPhase,
+		multiScatApprox,
+		tMaxMax);
+
+	const float transmittance = dot(result.transmittance, float3(1.0f / 3.0f, 1.0f / 3.0f, 1.0f / 3.0f));
+	aerialPerspectiveVolume[coord] = float4(result.L, 1.0f - transmittance);
+}

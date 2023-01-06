@@ -1,0 +1,94 @@
+#include "../ShaderCommon.hsf"
+#include "../Random.hsf"
+#include "HybridRenderPipelineCommon.hsf"
+#include "CascadedShadowMapCommon.hsf"
+
+#define SCREEN_SPACE_SHADOW_SHADER_PER_FRAME_DATA_SLOT                              0
+#define SCREEN_SPACE_SHADOW_SHADER_GBUFFER0_SRV_SLOT                                1
+#define SCREEN_SPACE_SHADOW_SHADER_DEPTH_BUFFER_SRV_SLOT                            2
+#define SCREEN_SPACE_SHADOW_SHADER_SHADOW_MAP_SRV_SLOT                              3
+#define SCREEN_SPACE_SHADOW_SHADER_SHADOW_MAP_SHADER_PARAMETERS_SLOT                4
+#define SCREEN_SPACE_SHADOW_SHADER_SHADOW_MASK_UAV_SLOT                             5
+
+PerFrameData GetPerFrameData()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(SCREEN_SPACE_SHADOW_SHADER_PER_FRAME_DATA_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<PerFrameData>(bufferIndex & 0xffff);
+}
+
+ShadowMapShaderParameters GetShadowMapShaderParameters()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(SCREEN_SPACE_SHADOW_SHADER_SHADOW_MAP_SHADER_PARAMETERS_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<ShadowMapShaderParameters>(bufferIndex & 0xffff);
+}
+
+Texture2D GetGBuffer0SRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(SCREEN_SPACE_SHADOW_SHADER_GBUFFER0_SRV_SLOT)];
+}
+
+Texture2D GetDepthBufferSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(SCREEN_SPACE_SHADOW_SHADER_DEPTH_BUFFER_SRV_SLOT)];
+}
+
+Texture2DArray GetShadowMapSRV()
+{
+    return BindlessTexture2DArrays[SHADER_ARGUMENTS_INDEX(SCREEN_SPACE_SHADOW_SHADER_SHADOW_MAP_SRV_SLOT)];
+}
+
+RWTexture2D<float4> GetShadowMaskUAV()
+{
+	return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(SCREEN_SPACE_SHADOW_SHADER_SHADOW_MASK_UAV_SLOT)];
+}
+
+[numthreads(8, 8, 1)]
+void ScreenSpaceShadowsCS(uint3 DispatchThreadID : SV_DispatchThreadID)
+{
+    PerFrameData perFrameData = GetPerFrameData();
+    uint width = perFrameData.renderResolutionWidth;
+    uint height = perFrameData.renderResolutionHeight;
+	if (DispatchThreadID.x >= width || DispatchThreadID.y >= height) 
+	{
+		return;
+	}
+    
+    uint2 coord = DispatchThreadID.xy;
+
+    Texture2D gbuffer0 = GetGBuffer0SRV();
+    Texture2D depthBuffer = GetDepthBufferSRV();
+    Texture2DArray shadowMap = GetShadowMapSRV();
+    ShadowMapShaderParameters shadowMapParameters = GetShadowMapShaderParameters();
+    RWTexture2D<float4> shadowMask = GetShadowMaskUAV();
+
+    float3 position = gbuffer0[coord].rgb; 
+    float4 cameraSpacePosition = mul(float4(position, 1.0), perFrameData.viewMatrix);
+    uint cascadeIndex = CalculateCascadeIndex(cameraSpacePosition.z, shadowMapParameters);
+    
+    float4 shadowMapCoord = mul(float4(position, 1.0), shadowMapParameters.viewProjectionMatrix[cascadeIndex]);
+    shadowMapCoord /= shadowMapCoord.w;
+    shadowMapCoord.x = (1.0 + shadowMapCoord.x) * 0.5;
+    shadowMapCoord.y = (1.0 - shadowMapCoord.y) * 0.5;
+
+    float visibility = 1.0;
+    if (shadowMapCoord.x > 0.0 && shadowMapCoord.x < 1.0 &&
+        shadowMapCoord.y > 0.0 && shadowMapCoord.y < 1.0 &&
+        shadowMapCoord.z > 0.0 && shadowMapCoord.z < 1.0)
+    {
+        float2 shadowMapDepthBias = 0.02;
+        
+        uint randSeed = RandInit(coord.x + coord.y * width, perFrameData.frameIndex);
+        float random = Rand(randSeed);
+
+        visibility = PCSS(
+            shadowMap, 
+            shadowMapCoord.xy, 
+            cascadeIndex, 
+            shadowMapCoord.z, 
+            shadowMapDepthBias,
+            random,
+            shadowMapParameters.shadowMapInvSize);
+    }
+
+    shadowMask[coord] = float4(visibility, 0.0, 0.0, 0.0);
+}

@@ -1,0 +1,113 @@
+#include "SkyAtmosphereCommon.hsf"
+
+void SkyViewLutParamsToUv(in uint width, in uint height, in AtmosphereParameters atmosphere, in bool intersectGround, in float viewZenithCosAngle, in float3 viewDir, in float viewHeight, out float2 uv)
+{
+	float Vhorizon = sqrt(viewHeight * viewHeight - atmosphere.bottomRadius * atmosphere.bottomRadius);
+	float cosBeta = Vhorizon / viewHeight;
+	float beta = acos(cosBeta);
+	float zenithHorizonAngle = PI - beta;
+	float viewZenithAngle = acos(viewZenithCosAngle);
+
+	if (!intersectGround)
+	{
+		float coord = viewZenithAngle / zenithHorizonAngle;
+		coord = 1.0f - coord;
+		coord = sqrt(coord);
+		coord = 1.0f - coord;
+		uv.y = coord * 0.5f;
+	}
+	else
+	{
+		float coord = (viewZenithAngle - zenithHorizonAngle) / beta;
+		coord = sqrt(coord);
+		uv.y = coord * 0.5f + 0.5f;
+	}
+
+	{
+		//float coord = -lightViewCosAngle * 0.5f + 0.5f;
+		//coord = sqrt(coord);
+		//uv.x = coord;
+		uv.x = (atan2(-viewDir.y, -viewDir.x) + PI) / (2.0f * PI);
+	}
+
+	// Constrain uvs to valid sub texel range (avoid zenith derivative issue making LUT usage visible)
+	uv = float2(FromSubUvsToUnit(uv.x, float(width)), FromSubUvsToUnit(uv.y, float(height)));
+}
+
+[numthreads(8, 8, 1)]
+void SkyAtmosphereRenderSkyCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{  
+	PerFrameData frameData = GetPerFrameData();
+    uint width = frameData.targetResolutionWidth;
+    uint height = frameData.targetResolutionHeight;
+	if (GlobalInvocationID.x >= width || GlobalInvocationID.y >= height) 
+	{
+		return;
+	}
+
+	RWTexture2D<float4> colorBuffer = GetSceneColorUAV();
+	Texture2D skyViewLut = GetSkyViewLutSRV();
+	Texture3D atmosphereAerialPerspectiveVolume = GetAtmosphereAerialPerspectiveVolumeSRV();
+	SkyAtmosphereConstants constants = GetSkyAtmosphereConstants();
+    AtmosphereParameters atmosphere = GetAtmosphereParameters(constants);
+
+	uint2 coord = GlobalInvocationID.xy;
+    float2 pixelPos = float2(coord) + 0.5f;
+	float2 uv = pixelPos / float2(width, height);
+	float4x4 invViewProjectionMatrix = frameData.invViewProjectionMatrix;
+	float3 ClipSpace = float3(uv * float2(2.0f, -2.0f) - float2(1.0f, -1.0f), 1.0f);
+	float4 HPos = mul(float4(ClipSpace, 1.0f), invViewProjectionMatrix);
+	float3 rayOrigin = frameData.cameraPosition + float3(0.0f, 0.0f, atmosphere.bottomRadius);
+	float3 rayDirection = normalize(HPos.xyz / HPos.w - frameData.cameraPosition);
+	float depthBufferValue = -1.0f;
+	float viewHeight = length(rayOrigin);
+	float3 sunDirection = normalize(frameData.sunDirection);
+	float3 L = 0.0f;
+	Texture2D depthBuffer = GetDepthBufferSRV();
+	depthBufferValue = depthBuffer[coord].r;
+
+	// float2 pixelCenter = GlobalInvocationID.xy + 0.5;
+    // float2 uvTemp = pixelCenter / float2(width, height);
+    // float4 clipSpacePosition = float4(uvTemp * 2.0 - 1.0, depthBufferValue, 1.0);
+	// clipSpacePosition.y = -clipSpacePosition.y;
+    // float4 worldSpacePosition = mul(clipSpacePosition, frameData.invViewProjectionMatrix);
+    // worldSpacePosition /= worldSpacePosition.w;
+	// colorBuffer[coord] = float4(worldSpacePosition.xyz, 1.0);
+	// return;
+
+	if (viewHeight < atmosphere.topRadius && depthBufferValue == 1.0f)
+	{
+		float3 UpVector = normalize(rayOrigin);
+		float viewZenithCosAngle = dot(rayDirection, UpVector);
+		float3 sideVector = normalize(cross(UpVector, rayDirection));   // assumes non parallel vectors
+		float3 forwardVector = normalize(cross(sideVector, UpVector));	// aligns toward the sun light but perpendicular to up vector
+		float2 lightOnPlane = float2(dot(sunDirection, forwardVector), dot(sunDirection, sideVector));
+		lightOnPlane = normalize(lightOnPlane);
+		float lightViewCosAngle = lightOnPlane.x;
+		bool intersectGround = RaySphereIntersectNearest(rayOrigin, rayDirection, float3(0.0f, 0.0f, 0.0f), atmosphere.bottomRadius) >= 0.0f;
+		float2 texCoord;
+		SkyViewLutParamsToUv(width, height, atmosphere, intersectGround, viewZenithCosAngle, rayDirection, viewHeight, texCoord);
+		float4 luminance = float4(skyViewLut.SampleLevel(SAMPLER_LINEAR_CLAMP, texCoord, 0).rgb + GetSunLuminance(sunDirection, rayOrigin, rayDirection, atmosphere.bottomRadius), 1.0f);
+		colorBuffer[coord] = luminance;
+		return;
+	}
+	ClipSpace.z = depthBufferValue;
+	float4 depthBufferWorldPos = mul(float4(ClipSpace, 1.0f), invViewProjectionMatrix);
+	depthBufferWorldPos /= depthBufferWorldPos.w;
+	float tDepth = length(depthBufferWorldPos.xyz - (rayOrigin + float3(0.0f, 0.0f, -atmosphere.bottomRadius)));
+	float slice = AerialPerspectiveDepthToSlice(tDepth);
+	float weight = 1.0f;
+	if (slice < 0.5f)
+	{
+		// We multiply by weight to fade to 0 at depth 0. That works for luminance and opacity.
+		weight = saturate(slice * 2.0f);
+		slice = 0.5f;
+	}
+	float w = sqrt(slice / AP_SLICE_COUNT);	// squared distribution
+	const float4 AP = weight * atmosphereAerialPerspectiveVolume.SampleLevel(SAMPLER_LINEAR_CLAMP, float3(uv, w), 0);
+	L.rgb += AP.rgb;
+	float opacity = AP.a;
+	float4 luminance = float4(L, opacity);
+
+	colorBuffer[coord] = luminance;
+}

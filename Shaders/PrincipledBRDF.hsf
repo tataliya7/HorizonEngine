@@ -1,0 +1,159 @@
+/*============================================================================
+
+# Copyright Disney Enterprises, Inc.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License
+# and the following modification to it: Section 6 Trademarks.
+# deleted and replaced with:
+#
+# 6. Trademarks. This License does not grant permission to use the
+# trade names, trademarks, service marks, or product names of the
+# Licensor and its affiliates, except as required for reproducing
+# the content of the NOTICE file.
+#
+# You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0
+
+============================================================================*/
+
+// @see: https://github.com/wdas/brdf/blob/main/src/brdfs/disney.brdf
+
+// # variables go here...
+// # [type] [name] [min val] [max val] [default val]
+// ::begin parameters
+// color baseColor         0.82    0.67    0.16
+// float metallic            0        1       0
+// float subsurface          0        1       0
+// float specular            0        1     0.5
+// float roughness           0        1     0.5
+// float specularTint        0        1       0
+// float anisotropic         0        1       0
+// float sheen               0        1       0
+// float sheenTint           0        1     0.5
+// float clearcoat           0        1       0
+// float clearcoatGloss      0        1       1
+// ::end parameters
+
+float sqr(float x)
+{ 
+    return x * x; 
+}
+
+float SchlickFresnel(float u)
+{
+    float m = clamp(1.0 - u, 0.0, 1.0);
+    float m2 = m * m;
+    return m2 * m2 * m; // pow(m, 5)
+}
+
+float GTR1(float NdotH, float a)
+{
+    if (a >= 1.0) return 1.0 / PI;
+    float a2 = a * a;
+    float t = 1.0 + (a2 - 1.0) * NdotH * NdotH;
+    return (a2 - 1.0) / (PI * log(a2) * t);
+}
+
+float GTR2(float NdotH, float a)
+{
+    float a2 = a * a;
+    float t = 1.0 + (a2 - 1.0) * NdotH * NdotH;
+    return a2 / (PI * t * t);
+}
+
+float GTR2_Anisotropic(float NdotH, float HdotX, float HdotY, float ax, float ay)
+{
+    return 1.0 / (PI * ax * ay * sqr(sqr(HdotX / ax) + sqr(HdotY / ay) + NdotH * NdotH));
+}
+
+float SmithG_GGX(float NdotV, float alphaG)
+{
+    float a = alphaG * alphaG;
+    float b = NdotV * NdotV;
+    return 1.0 / (NdotV + sqrt(a + b - a * b));
+}
+
+float SmithG_GGX_Anisotropic(float NdotV, float VdotX, float VdotY, float ax, float ay)
+{
+    return 1.0 / (NdotV + sqrt(sqr(VdotX * ax) + sqr(VdotY * ay) + sqr(NdotV)));
+}
+
+float3 PrincipledBRDF(
+    float4 baseColor,
+    float subsurface,
+    float metallic,
+    float specular,
+    float specularTint,
+    float roughness,
+    float anisotropic,
+    float anisotropicRotation,
+    float sheen,
+    float sheenTint,
+    float clearcoat,
+    float clearcoatGloss, 
+    float3 N, 
+    float3 V, 
+    float3 L,
+    float3 X, 
+    float3 Y)
+{   
+    float3 result = 0.0;
+
+    float NdotV = dot(N, V);
+    float NdotL = dot(N, L);
+
+    if (NdotV < 0.0 || NdotL < 0.0)
+    {
+        return result;
+    }
+
+    float3 H = normalize(L + V);
+    float NdotH = dot(N, H);
+    float LdotH = dot(L, H);
+
+    float Cdlum = 0.3 * baseColor.r + 0.6 * baseColor.g  + 0.1 * baseColor.b; // luminance approx.
+    float3 Ctint = Cdlum > 0.0 ? baseColor.rgb / Cdlum : 1.0; // normalize lum. to isolate hue+sat
+
+    float3 Cspec0 = lerp(specular * 0.08 * lerp(1.0, Ctint, specularTint), baseColor.rgb, metallic);
+    float3 Csheen = lerp(1.0, Ctint, sheenTint);
+
+	// Diffuse fresnel - go from 1 at normal incidence to .5 at grazing
+    // and lerp in diffuse retro-reflection based on roughness
+    float FL = SchlickFresnel(NdotL);
+    float FV = SchlickFresnel(NdotV);
+    float Fd90 = 0.5 + 2.0 * LdotH * LdotH * roughness;
+    float Fd = lerp(1.0, Fd90, FL) * lerp(1.0, Fd90, FV);
+
+    // Based on Hanrahan-Krueger brdf approximation of isotropic bssrdf
+    // 1.25 scale is used to (roughly) preserve albedo
+    // Fss90 used to "flatten" retroreflection based on roughness
+    float Fss90 = LdotH * LdotH * roughness;
+    float Fss = lerp(1.0, Fss90, FL) * lerp(1.0, Fss90, FV);
+    float ss = 1.25 * (Fss * (1.0 / (NdotL + NdotV) - 0.5) + 0.5);
+    result += ((1.0 / PI) * lerp(Fd, ss, subsurface) * baseColor.rgb) * (1.0 - metallic);
+
+    // Specular
+    float aspect = sqrt(1.0 - anisotropic * 0.9);
+    float ax = max(0.001, sqr(roughness) / aspect);
+    float ay = max(0.001, sqr(roughness) * aspect);
+    float Ds = GTR2_Anisotropic(NdotH, dot(H, X), dot(H, Y), ax, ay);
+    float FH = SchlickFresnel(LdotH);
+    float3 Fs = lerp(Cspec0, 1.0, FH);
+    float Gs;
+    Gs  = SmithG_GGX_Anisotropic(NdotL, dot(L, X), dot(L, Y), ax, ay);
+    Gs *= SmithG_GGX_Anisotropic(NdotV, dot(V, X), dot(V, Y), ax, ay);
+    result += Gs * Fs * Ds;
+
+    // Sheen  
+    float3 Fsheen = FH * sheen * Csheen;
+    result += Fsheen * (1.0 - metallic);
+
+    // clearcoat (ior = 1.5 -> F0 = 0.04)
+    float Dr = GTR1(NdotH, lerp(0.1, 0.001, clearcoatGloss));
+    float Fr = lerp(0.04, 1.0, FH);
+    float Gr = SmithG_GGX(NdotL, 0.25) * SmithG_GGX(NdotV, 0.25);
+    result += 0.25 * clearcoat * Gr * Fr * Dr;
+
+    return result;
+}

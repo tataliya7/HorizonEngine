@@ -1,0 +1,66 @@
+#include "../ShaderCommon.hsf"
+#include "HybridRenderPipelineCommon.hsf"
+
+#define MOTION_VECTORS_SHADER_PER_FRAME_DATA_SLOT                        0
+#define MOTION_VECTORS_SHADER_DEPTH_BUFFER_SRV_SLOT                      1
+#define MOTION_VECTORS_SHADER_MOTION_VECTORS_UAV_SLOT                    2
+#define MOTION_VECTORS_SHADER_MOTION_VECTORS1_UAV_SLOT                   3
+// #define MOTION_VECTORS_SHADER_HISTORY_BUFFER_SRV_SLOT                    4
+
+PerFrameData GetPerFrameData()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(MOTION_VECTORS_SHADER_PER_FRAME_DATA_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<PerFrameData>(bufferIndex & 0xffff);
+}
+
+Texture2D GetDepthBufferSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(MOTION_VECTORS_SHADER_DEPTH_BUFFER_SRV_SLOT)];
+}
+
+RWTexture2D<float4> GetMotionVectorsUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(MOTION_VECTORS_SHADER_MOTION_VECTORS_UAV_SLOT)];
+}
+
+RWTexture2D<float4> GetMotionVectors1UAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(MOTION_VECTORS_SHADER_MOTION_VECTORS1_UAV_SLOT)];
+}
+
+// Texture2D GetHistoryBufferSRV()
+// {
+//     return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(MOTION_VECTORS_SHADER_HISTORY_BUFFER_SRV_SLOT)];
+// }
+
+[numthreads(8, 8, 1)]
+void MotionVectorsCS(uint3 DispatchThreadID : SV_DispatchThreadID)
+{ 
+	PerFrameData perFrameData = GetPerFrameData();
+    uint width = perFrameData.renderResolutionWidth;
+    uint height = perFrameData.renderResolutionHeight;
+	if (DispatchThreadID.x >= width || DispatchThreadID.y >= height) 
+	{
+		return;
+	}
+
+    uint2 coord = DispatchThreadID.xy;
+	float2 curPosition = (coord.xy + 0.5) / float2(width, height);
+
+	Texture2D depthBuffer = GetDepthBufferSRV();
+    RWTexture2D<float4> motionVectors = GetMotionVectorsUAV();
+    RWTexture2D<float4> motionVectors1 = GetMotionVectors1UAV();
+
+	float depth = depthBuffer[coord].r;
+	float4 curClipPosition = float4(curPosition * 2.0 - 1.0, depth, 1.0);
+	float4 worldPosition = mul(curClipPosition, perFrameData.invViewProjectionMatrix);
+	float4 prevClipPosition = mul(worldPosition, perFrameData.prevViewProjectionMatrix);
+	float2 prevPosition = (prevClipPosition.xy / prevClipPosition.w) * 0.5 + 0.5;
+	float2 velocity = prevPosition - curPosition;
+
+    motionVectors[coord] = float4(velocity, 0.0, 0.0);
+
+    //Texture2D historyBuffer = GetHistoryBufferSRV();
+    //float4 color = historyBuffer.SampleLevel(SAMPLER_LINEAR_CLAMP, prevPosition, 0);
+    // motionVectors[coord] = color;
+}

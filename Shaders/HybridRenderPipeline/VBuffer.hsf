@@ -1,0 +1,6 @@
+#include "../ShaderCommon.hsf"
+#include "HybridRenderPipelineCommon.hsf"
+
+void VBufferCS(uint vertexIndex : SV_VertexID, out GBufferVSToPS output)
+{
+}

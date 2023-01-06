@@ -1,0 +1,191 @@
+#include "ShaderCommon.hsf"
+#include "BRDFCommon.hsf"
+
+#define FILTER_ENVIROMENT_MAP_SHADER_ENVIROMENT_MAP_SRV_SLOT             0
+#define FILTER_ENVIROMENT_MAP_SHADER_FILTERED_ENVIROMENT_MAP_UAV_SLOT    1
+
+TextureCube GetEnviromentMapSRV()
+{
+	return BindlessTextureCubes[SHADER_ARGUMENTS_INDEX(FILTER_ENVIROMENT_MAP_SHADER_ENVIROMENT_MAP_SRV_SLOT)];
+}
+
+RWTexture2DArray<float4> GetFilteredEnviromentMapUAV()
+{
+    return BindlessRWTexture2DArrays[SHADER_ARGUMENTS_INDEX(FILTER_ENVIROMENT_MAP_SHADER_FILTERED_ENVIROMENT_MAP_UAV_SLOT)];
+}
+
+// Filtering based on https://placeholderart.wordpress.com/2015/07/28/implementation-notes-runtime-environment-map-filtering-for-image-based-lighting/
+float3 FilterEnviromentMap(TextureCube enviromentMap, float3 N, float roughness, uint numSamples)
+{
+	float3 T; float3 B;
+	CreateOrthonormalBasis(T, B, N);
+
+	float3 R = N;
+    float3 V = R;
+	
+	// Solid angle of 1 pixel across all cube faces
+	uint cubemapSize = 32;
+
+	// Convolve environment map using GGX NDF importance sampling
+	float weight = 0.0;
+	float3 radiance = 0.0;
+	for (uint i = 0; i < numSamples; i++)
+	{
+		float2 Xi = Hammersley2D(i, numSamples);
+
+		float3 H = TangentToWorld(ImportanceSampleGGX(Xi, roughness), T, B, N);
+		float3 L = normalize(2.0 * dot(V, H) * H - V);
+
+		float NdotL = dot(N, L);
+		if (NdotL > 0.0)
+		{
+			float NdotH = max(1e-8, dot(N, H));
+			
+			// Probability Distribution Function
+			float pdf = D_GGX(NdotH, roughness) *  + 0.0001 / (4.0 * NdotH);
+
+			// Slid angle of current smple
+			float omegaS = 1.0 / (float(numSamples) * pdf);
+			float omegaP = 4.0 * PI / (6.0 * cubemapSize * cubemapSize);
+
+			float mipLevel = 0.5 * log2(omegaS / omegaP); 
+
+			float3 color = enviromentMap.SampleLevel(SAMPLER_LINEAR_WARP, L, mipLevel).rgb;
+
+			radiance += color * NdotL;
+			weight   += NdotL;
+		}
+	}
+
+	return radiance / weight;
+}
+
+[numthreads(8, 8, 6)]
+void FilterEnviromentMapCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{
+	RWTexture2DArray<float4> filteredEnviromentMap = GetFilteredEnviromentMapUAV();
+	uint width, height, faces;
+    filteredEnviromentMap.GetDimensions(width, height, faces);
+	if (GlobalInvocationID.x >= width || GlobalInvocationID.y >= height) 
+    {
+        return;
+    }
+
+	uint3 coord = GlobalInvocationID;
+    float2 uv = (coord.xy + 0.5) / float2(width, height);
+	float3 N = CalculateCubemapVector(uv, coord.z);
+
+	TextureCube enviromentMap = GetEnviromentMapSRV();
+	float roughness = SHADER_ARGUMENTS_DATA(0);
+
+	if (roughness < 0.01)
+	{
+		filteredEnviromentMap[coord] = enviromentMap.SampleLevel(SAMPLER_LINEAR_WARP, N, 0);
+		return;
+	}
+
+	const uint NumSamples = 1024;
+	//const uint NumSamples = roughness < 0.1 ? 32 : 64;
+
+	float3 result = FilterEnviromentMap(enviromentMap, N, roughness, NumSamples);
+
+	filteredEnviromentMap[coord] = float4(result, 1.0);
+}
+
+
+/*
+
+float3 SampleGGX(float3 rand, float alpha, float3 T, float3 B, float3 N, float3 V, out float pdf)
+{
+	vec3 Vt = world_to_tangent(V, N, T, B);
+	vec3 Ht = sample_ggx(rand, alpha, Vt);
+	float NH = saturate(Ht.z);
+	float NV = saturate(Vt.z);
+	float VH = saturate(dot(Vt, Ht));
+	pdf = pdf_ggx_reflect(NH, NV, VH, alpha);
+	return TangentToWorld(Ht, T, B, N);
+}
+
+// Filtering based on https://placeholderart.wordpress.com/2015/07/28/implementation-notes-runtime-environment-map-filtering-for-image-based-lighting/
+float3 FilterEnviromentMap(TextureCube enviromentMap, float3 N, float roughness, uint numSamples)
+{
+	uint width; uint height; uint numMipLevels;
+	enviromentMap.GetDimensions(0, width, height, numMipLevels);
+
+	float3 T; float3 B;
+	CreateOrthonormalBasis(T, B, N);
+	
+ 	float3 R = N;
+    float3 V = R;
+
+	uint cubemapSize = 32;
+
+	// Convolve environment map using GGX NDF importance sampling
+	float weight = 0.0;
+	float3 radiance = 0.0;
+	for (uint i = 0; i < numSamples; i++)
+	{
+		float2 Xi = Hammersley2D(i, numSamples);
+
+		float pdf;
+		float3 H = SampleGGX(Xi, roughness, T, B, N, V, pdf);
+		float3 L = -reflect(V, H);
+
+		float NdotL = dot(N, L);
+		if (NdotL > 0.0)
+		{
+			float NdotH = max(1e-8, dot(N, H));
+	
+			float omegaS = 1.0 / (float(numSamples) * pdf);
+			float omegaP = 4.0 * PI / (6.0 * cubemapSize * cubemapSize);
+
+			float mipLevel = max(0.5 * log2(omegaS / omegaP), 0.0); 
+
+			float3 color = enviromentMap.SampleLevel(SAMPLER_LINEAR_WARP, L, mipLevel).rgb;
+
+			// Clampe brightness
+			// float fireflyFactor = 1.0;
+			// float luma = max(1e-8, max(color.x, max(color.y, color.z)));
+			// color *= 1.0 - max(0.0, luma - fireflyFactor) / luma;
+
+			radiance += color * NdotL;
+			weight   += NdotL;
+		}
+	}
+
+	return radiance / weight;
+}
+
+[numthreads(8, 8, 6)]
+void FilterEnviromentMapCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{
+	RWTexture2DArray<float4> filteredEnviromentMap = GetFilteredEnviromentMapUAV();
+	uint width, height, faces;
+    filteredEnviromentMap.GetDimensions(width, height, faces);
+	if (GlobalInvocationID.x >= width || GlobalInvocationID.y >= height) 
+    {
+        return;
+    }
+
+	uint3 coord = GlobalInvocationID;
+    float2 uv = (coord.xy + 0.5) / float2(width, height);
+	float3 N = CalculateCubemapVector(uv, coord.z);
+
+	TextureCube enviromentMap = GetEnviromentMapSRV();
+	float roughness = SHADER_ARGUMENTS_DATA(0);
+
+	if (roughness < 0.01)
+	{
+		filteredEnviromentMap[coord] = enviromentMap.SampleLevel(SAMPLER_LINEAR_WARP, N, 0);
+		return;
+	}
+
+	const uint NumSamples = 1024;
+	//const uint NumSamples = roughness < 0.1 ? 32 : 64;
+
+	float3 result = FilterEnviromentMap(enviromentMap, N, roughness, NumSamples);
+
+	filteredEnviromentMap[coord] = float4(result, 1.0);
+}
+
+*/

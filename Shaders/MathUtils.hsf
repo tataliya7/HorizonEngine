@@ -1,0 +1,4 @@
+float mean(float3 v)
+{
+	return dot(v, float3(1.0f / 3.0f, 1.0f / 3.0f, 1.0f / 3.0f));
+}

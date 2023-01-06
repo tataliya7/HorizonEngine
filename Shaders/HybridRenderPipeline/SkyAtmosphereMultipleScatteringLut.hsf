@@ -1,0 +1,135 @@
+#include "SkyAtmosphereCommon.hsf"
+
+groupshared float3 MultiScatAs1SharedMem[64];
+groupshared float3 LSharedMem[64];
+
+[numthreads(1, 1, 64)]
+void SkyAtmosphereMultipleScatteringLutCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{	
+	PerFrameData frameData = GetPerFrameData();
+    SkyAtmosphereConstants constants = GetSkyAtmosphereConstants();
+    AtmosphereParameters atmosphere = GetAtmosphereParameters(constants);
+    RWTexture2D<float4> multipleScatteringLut = GetMultipleScatteringLutUAV();
+
+    uint size = constants.multipleScatteringLutSize;
+    uint2 coord = GlobalInvocationID.xy;
+    float2 pixelPos = float2(coord) + 0.5f;
+    float2 uv = pixelPos / size;
+    uv = float2(FromSubUvsToUnit(uv.x, size), FromSubUvsToUnit(uv.y, size));
+
+	float cosSunZenithAngle = uv.x * 2.0f - 1.0f;
+	float3 sunDirection = float3(0.0f, sqrt(saturate(1.0f - cosSunZenithAngle * cosSunZenithAngle)), cosSunZenithAngle);
+	sunDirection = normalize(sunDirection);
+	// We adjust again viewHeight according to PLANET_RADIUS_OFFSET to be in a valid range.
+	float viewHeight = atmosphere.bottomRadius + saturate(uv.y + PLANET_RADIUS_OFFSET) * (atmosphere.topRadius - atmosphere.bottomRadius - PLANET_RADIUS_OFFSET);
+
+	float3 rayOrigin = float3(0.0f, 0.0f, viewHeight);
+	float3 rayDirection = float3(0.0f, 0.0f, 1.0f);
+
+	const bool ground = true;
+	const float sampleCount = 20.0f; // a minimum set of step is required for accuracy unfortunately
+	const float depthBufferValue = -1.0f;
+	const bool variableSampleCount = false;
+	const bool mieRayPhase = false;
+	const bool multiScatApprox = false;
+	// When building the scattering factor, we assume light illuminance is 1 to compute a transfert function relative to identity illuminance of 1.
+	// This make the scattering factor independent of the light. It is now only linked to the atmosphere properties.
+	const float3 sunIlluminanceScale = float3(1.0f, 1.0f, 1.0f);
+	const float sphereSolidAngle = 4.0f * PI;
+	const float2 rayMarchMinMaxSPP = float2(constants.rayMarchMinSPP, constants.rayMarchMaxSPP);
+	const float4x4 invViewProjectionMatrix = frameData.invViewProjectionMatrix;
+
+	// Reference. Since there are many sample, it requires MULTI_SCATTERING_POWER_SERIE to be true for accuracy and to avoid divergences (see declaration for explanations)
+	const uint sqrtSampleCount = 8;
+	const float sqrtSample = float(sqrtSampleCount);
+	float i = 0.5f + float(GlobalInvocationID.z / sqrtSampleCount);
+	float j = 0.5f + float(GlobalInvocationID.z - float((GlobalInvocationID.z / sqrtSampleCount) * sqrtSampleCount));
+	
+	float randA = i / sqrtSample;
+	float randB = j / sqrtSample;
+	float theta = 2.0f * PI * randA;
+	float phi = acos(1.0f - 2.0f * randB);	// uniform distribution: https://mathworld.wolfram.com/SpherePointPicking.html
+	float cosPhi = cos(phi);
+	float sinPhi = sin(phi);
+	float cosTheta = cos(theta);
+	float sinTheta = sin(theta);
+
+	rayDirection.x = cosTheta * sinPhi;
+	rayDirection.y = sinTheta * sinPhi;
+	rayDirection.z = cosPhi;
+
+	SingleScatteringResult result = IntegrateScatteredLuminance(
+		uv, 
+		depthBufferValue,
+		rayOrigin,
+		rayDirection, 
+		sunDirection, 
+		atmosphere, 
+		ground, 
+		sampleCount,
+		rayMarchMinMaxSPP,
+		sunIlluminanceScale, 
+		invViewProjectionMatrix,
+		variableSampleCount,
+		mieRayPhase,
+		multiScatApprox);
+
+	MultiScatAs1SharedMem[GlobalInvocationID.z] = result.multiScatAs1 * sphereSolidAngle / (sqrtSample * sqrtSample);
+	LSharedMem[GlobalInvocationID.z] = result.L * sphereSolidAngle / (sqrtSample * sqrtSample);
+	
+
+	GroupMemoryBarrierWithGroupSync();
+	// 64 to 32
+	if (GlobalInvocationID.z < 32)
+	{
+		MultiScatAs1SharedMem[GlobalInvocationID.z] += MultiScatAs1SharedMem[GlobalInvocationID.z + 32];
+		LSharedMem[GlobalInvocationID.z] += LSharedMem[GlobalInvocationID.z + 32];
+	}
+	GroupMemoryBarrierWithGroupSync();
+	// 32 to 16
+	if (GlobalInvocationID.z < 16)
+	{
+		MultiScatAs1SharedMem[GlobalInvocationID.z] += MultiScatAs1SharedMem[GlobalInvocationID.z + 16];
+		LSharedMem[GlobalInvocationID.z] += LSharedMem[GlobalInvocationID.z + 16];
+	}
+	GroupMemoryBarrierWithGroupSync();
+	// 16 to 8 (16 is thread group min hardware size with intel, no sync required from there)
+	if (GlobalInvocationID.z < 8)
+	{
+		MultiScatAs1SharedMem[GlobalInvocationID.z] += MultiScatAs1SharedMem[GlobalInvocationID.z + 8];
+		LSharedMem[GlobalInvocationID.z] += LSharedMem[GlobalInvocationID.z + 8];
+	}
+	GroupMemoryBarrierWithGroupSync();
+	if (GlobalInvocationID.z < 4)
+	{
+		MultiScatAs1SharedMem[GlobalInvocationID.z] += MultiScatAs1SharedMem[GlobalInvocationID.z + 4];
+		LSharedMem[GlobalInvocationID.z] += LSharedMem[GlobalInvocationID.z + 4];
+	}
+	GroupMemoryBarrierWithGroupSync();
+	if (GlobalInvocationID.z < 2)
+	{
+		MultiScatAs1SharedMem[GlobalInvocationID.z] += MultiScatAs1SharedMem[GlobalInvocationID.z + 2];
+		LSharedMem[GlobalInvocationID.z] += LSharedMem[GlobalInvocationID.z + 2];
+	}
+	GroupMemoryBarrierWithGroupSync();
+	if (GlobalInvocationID.z < 1)
+	{
+		MultiScatAs1SharedMem[GlobalInvocationID.z] += MultiScatAs1SharedMem[GlobalInvocationID.z + 1];
+		LSharedMem[GlobalInvocationID.z] += LSharedMem[GlobalInvocationID.z + 1];
+	}
+	GroupMemoryBarrierWithGroupSync();
+	if (GlobalInvocationID.z > 0)
+    {
+        return;
+    }
+
+	const float isotropicPhase  = 1.0f / sphereSolidAngle;
+	float3 multiScatAs1			= MultiScatAs1SharedMem[0] * isotropicPhase;	// Equation 7 f_ms
+	float3 inScatteredLuminance	= LSharedMem[0] * isotropicPhase;				// Equation 5 L_2ndOrder
+
+	// For a serie, sum_{n=0}^{n=+inf} = 1 + r + r^2 + r^3 + ... + r^n = 1 / (1.0 - r), see https://en.wikipedia.org/wiki/Geometric_series 
+	const float3 sumOfAllMultiScatteringEventsContribution = 1.0f / (1.0 - multiScatAs1);
+	float3 L = inScatteredLuminance * sumOfAllMultiScatteringEventsContribution; // Equation 10 Psi_ms
+
+    multipleScatteringLut[coord] = float4(constants.multipleScatteringFactor * L, 1.0f);
+}

@@ -1,0 +1,144 @@
+#define MAX_NUM_SHADOW_MAP_CASCADES 4
+
+struct ShadowMapShaderParameters
+{
+    float4x4 viewProjectionMatrix[MAX_NUM_SHADOW_MAP_CASCADES];
+    float splitDepth[MAX_NUM_SHADOW_MAP_CASCADES];
+    float shadowMapInvSize;
+};
+
+static const float Softness = 10.0;
+static const float2 PoissonOffsets[32] = {
+	float2(0.06407013, 0.05409927),
+	float2(0.7366577, 0.5789394),
+	float2(-0.6270542, -0.5320278),
+	float2(-0.4096107, 0.8411095),
+	float2(0.6849564, -0.4990818),
+	float2(-0.874181, -0.04579735),
+	float2(0.9989998, 0.0009880066),
+	float2(-0.004920578, -0.9151649),
+	float2(0.1805763, 0.9747483),
+	float2(-0.2138451, 0.2635818),
+	float2(0.109845, 0.3884785),
+	float2(0.06876755, -0.3581074),
+	float2(0.374073, -0.7661266),
+	float2(0.3079132, -0.1216763),
+	float2(-0.3794335, -0.8271583),
+	float2(-0.203878, -0.07715034),
+	float2(0.5912697, 0.1469799),
+	float2(-0.88069, 0.3031784),
+	float2(0.5040108, 0.8283722),
+	float2(-0.5844124, 0.5494877),
+	float2(0.6017799, -0.1726654),
+	float2(-0.5554981, 0.1559997),
+	float2(-0.3016369, -0.3900928),
+	float2(-0.5550632, -0.1723762),
+	float2(0.925029, 0.2995041),
+	float2(-0.2473137, 0.5538505),
+	float2(0.9183037, -0.2862392),
+	float2(0.2469421, 0.6718712),
+	float2(0.3916397, -0.4328209),
+	float2(-0.03576927, -0.6220032),
+	float2(-0.04661255, 0.7995201),
+	float2(0.4402924, 0.3640312),
+};
+
+uint CalculateCascadeIndex(float cameraSpacePositionZ, ShadowMapShaderParameters parameters)
+{
+    uint cascadeIndex = 0;
+	for (uint i = 0; i < MAX_NUM_SHADOW_MAP_CASCADES - 1; i++)
+	{
+		if (cameraSpacePositionZ < parameters.splitDepth[i])
+		{
+			cascadeIndex = i + 1;
+		}
+	}
+    return cascadeIndex;
+}
+
+
+float PCF(Texture2DArray cascadedShadowMap, float2 uv, uint cascadeIndex, float depth, float2 depthBias, float filterSize, float offsetScale, float2 offsetRotation)
+{
+	float sum = 0.0;
+	uint samples = 32;
+	for (int i = 0; i < samples; i++)
+	{
+        float2 offset = offsetScale * PoissonOffsets[i] * filterSize;
+        // Rotate
+        offset = float2(offset.x * offsetRotation.x - offset.y * offsetRotation.y, offset.y * offsetRotation.x + offset.x * offsetRotation.y);
+        
+        // float biasedDepth = depth + dot(offset, depthBias);
+        float biasedDepth = depth + depthBias.x;
+
+        float shadow = 1.0;
+
+        float shadowMapDepth = cascadedShadowMap.SampleLevel(SAMPLER_LINEAR_CLAMP, float3(uv + offset, cascadeIndex), 0).r;
+
+        if (shadowMapDepth > biasedDepth)
+        {
+            shadow = 0.0;
+        }
+
+        sum += shadow;
+	}
+	return sum / samples;
+}
+
+float2 FindBlocker(Texture2DArray cascadedShadowMap, float2 uv, uint cascadeIndex, float depth, float2 depthBias, float filterSize, float offsetScale, float2 offsetRotation) 
+{
+    float averageBlockerDepth = 0.0;
+    float blockerDepthSum = 0.0;
+    float numBlockers = 0.0;
+
+    uint samples = 32;
+    for(int i = 0; i < samples; i++)
+    {
+        float2 offset = offsetScale * PoissonOffsets[i] * filterSize;
+        // Rotate
+        offset = float2(offset.x * offsetRotation.x - offset.y * offsetRotation.y, offset.y * offsetRotation.x + offset.x * offsetRotation.y);
+        
+        // float biasedDepth = depth + dot(offset, depthBias);
+        float biasedDepth = depth + depthBias.x;
+
+        float shadowMapDepth = cascadedShadowMap.SampleLevel(SAMPLER_LINEAR_CLAMP, float3(uv + offset, cascadeIndex), 0).r;
+
+        if (shadowMapDepth > biasedDepth)
+        {
+            blockerDepthSum += shadowMapDepth;
+            numBlockers += 1.0;
+        }
+    }
+
+    averageBlockerDepth = blockerDepthSum / numBlockers;
+
+    return float2(averageBlockerDepth, numBlockers);
+}
+
+float PCSS(Texture2DArray cascadedShadowMap, float2 uv, uint cascadeIndex, float depth, float2 depthBias, float random, float scale)
+{
+    float rotationAngle = random * 3.1415926;
+    float2 rotation = float2(cos(rotationAngle), sin(rotationAngle));
+
+    // Reversed-Z
+    float awareDepth = 1.0 - depth;
+
+    // STEP 1: Blocker Search
+    float searchSize = Softness * saturate(awareDepth - 0.02) / awareDepth;
+    float2 blockerInfo = FindBlocker(cascadedShadowMap, uv, cascadeIndex, depth, depthBias, searchSize, scale, rotation);
+
+	if (blockerInfo.y < 1.0)
+	{
+		// There are no occluders, so early out
+		return 1.0;
+	}
+
+    // STEP 2: Penumbra Size
+    float penumbra = blockerInfo.x - depth;
+
+    float filterSize = penumbra * Softness;
+
+    // STEP 3: PCF filtering
+	float shadow = PCF(cascadedShadowMap, uv, cascadeIndex, depth, depthBias, filterSize, scale, rotation);
+
+	return shadow;
+}

@@ -1,0 +1,210 @@
+#include "../ShaderCommon.hsf"
+#include "HybridRenderPipelineCommon.hsf"
+
+#define GBUFFER_SHADER_PER_FRAME_DATA_SLOT              0
+#define GBUFFER_SHADER_VERTEX_BUFFER0_SLOT              1
+#define GBUFFER_SHADER_VERTEX_BUFFER1_SLOT              2
+#define GBUFFER_SHADER_VERTEX_BUFFER2_SLOT              3
+#define GBUFFER_SHADER_VERTEX_BUFFER3_SLOT              4
+#define GBUFFER_SHADER_WORLD_MATRIX_BUFFER_SLOT         5
+#define GBUFFER_SHADER_PREV_WORLD_MATRIX_BUFFER_SLOT    6
+#define GBUFFER_SHADER_MATERIAL_BUFFER_SLOT             7
+
+PerFrameData GetPerFrameData()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(GBUFFER_SHADER_PER_FRAME_DATA_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<PerFrameData>(bufferIndex & 0xffff);
+}
+
+float3 GetVertexPosition(uint vertexIndex)
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(GBUFFER_SHADER_VERTEX_BUFFER0_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<float3>((bufferIndex & 0xffff) + vertexIndex * sizeof(float3));
+}
+
+float3 GetVertexNormal(uint vertexIndex)
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(GBUFFER_SHADER_VERTEX_BUFFER1_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<float3>((bufferIndex & 0xffff) + vertexIndex * sizeof(float3));
+}
+
+float4 GetVertexTangent(uint vertexIndex)
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(GBUFFER_SHADER_VERTEX_BUFFER2_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<float4>((bufferIndex & 0xffff) + vertexIndex * sizeof(float4));
+}
+
+float2 GetVertexTexCoord0(uint vertexIndex)
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(GBUFFER_SHADER_VERTEX_BUFFER3_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<float2>((bufferIndex & 0xffff) + vertexIndex * sizeof(float2));
+}
+
+float4x4 GetWorldMatrix()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(GBUFFER_SHADER_WORLD_MATRIX_BUFFER_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<float4x4>((bufferIndex & 0xffff) * sizeof(float4x4));
+}
+
+float4x4 GetPrevWorldMatrix()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(GBUFFER_SHADER_PREV_WORLD_MATRIX_BUFFER_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<float4x4>((bufferIndex & 0xffff) * sizeof(float4x4));
+}
+
+#define MATERIAL_FLAGS_USE_BASE_COLOR_MAP         0x00000001
+#define MATERIAL_FLAGS_USE_NORMAL_MAP             0x00000002
+#define MATERIAL_FLAGS_USE_METALLIC_ROUGHNESS_MAP 0x00000004
+#define MATERIAL_FLAGS_USE_EMISSIVE_MAP           0x00000008
+
+struct MaterialInstanceData
+{
+    int flags;
+    float4 baseColor;
+    float metallic;
+    float roughness;
+    float4 emission;
+    uint baseColorMapIndex;
+    uint normalMapIndex;
+    uint metallicRoughnessMapIndex;
+    uint emissiveMapIndex;
+};
+
+MaterialInstanceData GetMaterialInstanceData()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(GBUFFER_SHADER_MATERIAL_BUFFER_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<MaterialInstanceData>((bufferIndex & 0xffff) * sizeof(MaterialInstanceData));
+}
+
+Texture2D GetBaseColorMap(uint baseColorMapIndex)
+{
+    return BindlessTexture2Ds[baseColorMapIndex];
+}
+
+Texture2D GetNormalMap(uint normalMapIndex)
+{
+    return BindlessTexture2Ds[normalMapIndex];
+}
+
+Texture2D GetMetallicRoughnessMap(uint metallicRoughnessMapIndex)
+{
+    return BindlessTexture2Ds[metallicRoughnessMapIndex];
+}
+
+Texture2D GetEmissiveMap(uint emissiveMapIndex)
+{
+    return BindlessTexture2Ds[emissiveMapIndex];
+}
+
+struct GBufferVSToPS
+{
+    float4 clipPosition : SV_POSITION;
+    float4 prevClipPosition : POSITION0;
+    float3 worldPosition : POSITION1;
+    float3 worldNormal : NORMAL0;
+    float2 texCoord0 : TEXCOORD0;
+    float3x3 tangentSpace : TANGENT;
+};
+
+void GBufferVS(uint vertexIndex : SV_VertexID, out GBufferVSToPS output)
+{
+    PerFrameData perFrameData = GetPerFrameData();
+
+    float4x4 worldMatrix = GetWorldMatrix();
+    float3 localPosition =  GetVertexPosition(vertexIndex);
+    float3 worldPosition = mul(float4(localPosition, 1.0), worldMatrix).xyz;
+    float4 clipPosition = mul(float4(worldPosition, 1.0), perFrameData.viewProjectionMatrix);
+
+    float3 worldNormal = normalize(mul(GetVertexNormal(vertexIndex), (float3x3)worldMatrix));
+    float4 vertexTangent = GetVertexTangent(vertexIndex);
+    float3 worldTangent = normalize(mul(vertexTangent.xyz, (float3x3)worldMatrix));
+    float3 worldBitangent = normalize(cross(worldNormal, worldTangent) * vertexTangent.w);
+    float3x3 tangentSpace = float3x3(worldTangent, worldBitangent, worldNormal);
+
+    float2 texCoord0 =  GetVertexTexCoord0(vertexIndex);
+
+    float4x4 prevWorldMatrix = GetPrevWorldMatrix();
+    float4 prevWorldPosition = mul(float4(localPosition, 1.0), prevWorldMatrix);
+    float4 prevClipPosition = mul(prevWorldPosition, perFrameData.prevViewProjectionMatrix);
+
+    output.clipPosition = clipPosition;
+    output.prevClipPosition = prevClipPosition;
+    output.worldPosition = worldPosition;
+    output.worldNormal = worldNormal;
+    output.tangentSpace = tangentSpace;
+    output.texCoord0 = texCoord0;
+}
+
+struct GBufferData
+{
+    float4 gbuffer0 : SV_TARGET0;
+    float4 gbuffer1 : SV_TARGET1;
+    float4 gbuffer2 : SV_TARGET2;
+    float4 gbuffer3 : SV_TARGET3;
+    float4 gbuffer4 : SV_TARGET4;
+    float4 velocity : SV_TARGET5;
+};
+
+void GBufferPS(GBufferVSToPS input, out GBufferData gbufferData)
+{
+    float3 interpolatedVertexNormal = normalize(input.worldNormal);
+    float3 position = input.worldPosition;
+    float2 texCoord0 = input.texCoord0;
+    
+    PerFrameData perFrameData = GetPerFrameData();
+    float gamma = perFrameData.gamma;
+
+    MaterialInstanceData material = GetMaterialInstanceData();
+    
+    float4 baseColor = material.baseColor;
+    if (material.flags & MATERIAL_FLAGS_USE_BASE_COLOR_MAP)
+    {
+        Texture2D baseColorMap = GetBaseColorMap(material.baseColorMapIndex);
+        baseColor = SRGBToLinear(baseColorMap.Sample(SAMPLER_LINEAR_WARP, texCoord0), gamma);
+    }
+    
+    if (baseColor.a < 0.2)
+	{
+		discard;
+	}
+
+    float3 normal = interpolatedVertexNormal;
+    if (material.flags & MATERIAL_FLAGS_USE_NORMAL_MAP)
+    {
+        Texture2D normalMap = GetNormalMap(material.normalMapIndex);
+        float3 tangentNormal = normalize(normalize(normalMap.Sample(SAMPLER_LINEAR_WARP, texCoord0).xyz) * 2.0 - 1.0);
+        normal = normalize(mul(tangentNormal, input.tangentSpace));
+    }
+
+	float metallic = material.metallic;
+    float roughness = material.roughness;
+    if (material.flags & MATERIAL_FLAGS_USE_METALLIC_ROUGHNESS_MAP)
+    {
+        Texture2D metallicRoughnessMap = GetMetallicRoughnessMap(material.metallicRoughnessMapIndex);
+        float4 metallicRoughness = metallicRoughnessMap.Sample(SAMPLER_LINEAR_WARP, texCoord0);
+        metallic = metallicRoughness.b;
+        roughness = metallicRoughness.g;
+    }
+    roughness = max(roughness, 0.04);
+    
+    float4 emission = material.emission;
+    if (material.flags & MATERIAL_FLAGS_USE_EMISSIVE_MAP)
+    {
+        Texture2D emissiveMap = GetEmissiveMap(material.emissiveMapIndex);
+        emission = SRGBToLinear(emissiveMap.Sample(SAMPLER_LINEAR_WARP, texCoord0), gamma);
+    }
+
+    float4 clipPosition = input.clipPosition;
+    float linearDepth01 = clipPosition.z / clipPosition.w;
+
+    float2 currUV = (clipPosition.xy / clipPosition.w) * 0.5 + 0.5;
+    float2 prevUV = (input.prevClipPosition.xy / input.prevClipPosition.w) * 0.5 + 0.5;
+    float4 velocity = float4(prevUV - currUV, 1.0, 1.0);
+
+    gbufferData.gbuffer0 = float4(position, metallic);
+	gbufferData.gbuffer1 = float4(normal, roughness);
+    gbufferData.gbuffer2 = float4(baseColor);
+    gbufferData.gbuffer3 = float4(emission);
+    gbufferData.gbuffer4 = float4(linearDepth01, max(abs(ddx(linearDepth01)), abs(ddy(linearDepth01))), length(fwidth(position)), length(fwidth(normal)));
+    gbufferData.velocity = velocity;
+}

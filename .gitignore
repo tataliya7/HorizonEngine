@@ -1,0 +1,61 @@
+*
+!*/
+
+# Configuration files
+!*.ini
+
+# C/C++ source files
+!*.c
+!*.cc
+!*.cpp
+!*.cppm
+!*.h
+!*.hpp
+!*.inl
+!*.inc
+!*.cu
+
+# Shader files
+!*.hsf
+
+# Text files
+!*.txt
+!*.md
+
+# Script files
+!*.bat
+!*.sh
+!*.lua
+!*.py
+
+# Git files
+!.git*
+
+# ThirdParty libraries
+!*.dll
+!*.lib
+
+# Assets
+!*.ttf
+!*.bin
+!*.glb
+!*.gltf
+!*.obj
+!*.mtl
+!*.fbx
+!*.png
+!*.jpg
+!*.tga
+!*.hdr
+
+!*.horizon
+
+!README
+!LICENSE
+
+.vs
+.vscode
+
+Build/
+
+!Screenshots/*

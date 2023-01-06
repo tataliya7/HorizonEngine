@@ -1,0 +1,110 @@
+
+#include "SkyAtmosphereCommon.hsf"
+
+float3 UvToSkyViewLutParams(in uint width, in uint height, in AtmosphereParameters atmosphere, in float viewHeight, in float2 uv)
+{
+	// Constrain uvs to valid sub texel range (avoid zenith derivative issue making LUT usage visible)
+	uv = float2(FromSubUvsToUnit(uv.x, float(width)), FromSubUvsToUnit(uv.y, float(height)));
+
+	float Vhorizon = sqrt(viewHeight * viewHeight - atmosphere.bottomRadius * atmosphere.bottomRadius);
+	// GroundToHorizonCos
+	float cosBeta = Vhorizon / viewHeight;
+	float beta = acos(cosBeta);
+	float zenithHorizonAngle = PI - beta;
+
+	float viewZenithAngle;
+	if (uv.y < 0.5f)
+	{
+		float coord = 2.0f * uv.y;
+		coord = 1.0f - coord;
+		coord *= coord;
+		coord = 1.0f - coord;
+		viewZenithAngle = zenithHorizonAngle * coord;
+	}
+	else
+	{
+		float coord = uv.y * 2.0f - 1.0f;
+		coord *= coord;
+		viewZenithAngle = zenithHorizonAngle + beta * coord;
+	}
+	float cosViewZenithAngle = cos(viewZenithAngle);
+	float sinViewZenithAngle = sin(viewZenithAngle);
+
+	float longitudeViewAngle = uv.x * 2.0f * PI;
+
+	// float coord = uv.x;
+	// coord *= coord;
+	// lightViewCosAngle = -(coord * 2.0f - 1.0f);
+
+	float cosLongitudeViewAngle = cos(longitudeViewAngle);
+	float sinLongitudeViewAngle = sin(longitudeViewAngle);
+	float3 viewDir = float3(
+		sinViewZenithAngle * cosLongitudeViewAngle,
+		sinViewZenithAngle * sinLongitudeViewAngle,
+		cosViewZenithAngle);
+	
+	return viewDir;
+}
+
+[numthreads(8, 8, 1)]
+void SkyAtmosphereSkyViewLutCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{
+    SkyAtmosphereConstants constants = GetSkyAtmosphereConstants();
+    uint width = constants.skyViewLutWidth;
+    uint height = constants.skyViewLutHeight;
+	if (GlobalInvocationID.x >= width || GlobalInvocationID.y >= height) 
+	{
+		return;
+	}
+
+    AtmosphereParameters atmosphere = GetAtmosphereParameters(constants);
+	PerFrameData frameData = GetPerFrameData();
+    RWTexture2D<float4> skyViewLut = GetSkyViewLutUAV();
+    float3 cameraPosition = frameData.cameraPosition;
+    uint2 coord = GlobalInvocationID.xy;
+    float2 pixelPos = float2(coord) + 0.5f;
+	float2 uv = pixelPos / float2(width, height);
+	float3 clipSpacePos = float3(uv * float2(2.0f, -2.0) - float2(1.0f, -1.0f), 1.0f);
+	float3 rayOrigin = cameraPosition + float3(0.0f, 0.0f, atmosphere.bottomRadius);
+	float viewHeight = length(rayOrigin);
+
+	float3 rayDirection = UvToSkyViewLutParams(width, height, atmosphere, viewHeight, uv);
+
+	float3 sunDirection;
+	{
+		float3 upVector = rayOrigin / viewHeight;
+		float sunZenithCosAngle = dot(upVector, normalize(frameData.sunDirection));
+		sunDirection = normalize(float3(sqrt(1.0f - sunZenithCosAngle * sunZenithCosAngle), 0.0f, sunZenithCosAngle));
+	}
+
+    float3 L = float3(0.0f, 0.0f, 0.0f);
+	if (MoveToTopAtmosphere(rayOrigin, rayDirection, atmosphere.topRadius))
+    {
+        const float depthBufferValue = -1.0f;
+        const bool ground = false;
+        const float sampleCount = 30.0f;
+		const float2 rayMarchMinMaxSPP = float2(constants.rayMarchMinSPP, constants.rayMarchMaxSPP);
+		const float3 sunIlluminanceScale = frameData.sunIlluminanceScale;
+		float4x4 invViewProjectionMatrix = frameData.invViewProjectionMatrix;
+        const bool variableSampleCount = true;
+        const bool mieRayPhase = true;
+        const bool multiScatApprox = constants.multipleScatteringFactor > 0.0f ? true : false;
+        SingleScatteringResult result = IntegrateScatteredLuminance(
+			uv,
+			depthBufferValue,
+			rayOrigin,
+			rayDirection,
+			sunDirection,
+			atmosphere,
+			ground,
+			sampleCount,
+			rayMarchMinMaxSPP,
+			sunIlluminanceScale, 
+			invViewProjectionMatrix,
+			variableSampleCount,
+			mieRayPhase,
+			multiScatApprox);
+		L += result.L;
+    }
+    skyViewLut[coord] = float4(L, 1.0f);
+}

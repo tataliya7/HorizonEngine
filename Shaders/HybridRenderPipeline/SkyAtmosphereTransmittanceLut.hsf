@@ -1,0 +1,50 @@
+#include "SkyAtmosphereCommon.hsf"
+
+[numthreads(8, 8, 1)]
+void SkyAtmosphereTransmittanceLutCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{ 
+    SkyAtmosphereConstants constants = GetSkyAtmosphereConstants();
+    uint width = constants.transmittanceLutWidth;
+    uint height = constants.transmittanceLutHeight;
+	
+	PerFrameData perFrameData = GetPerFrameData();
+    RWTexture2D<float4> transmittanceLut = GetTransmittanceLutUAV();
+    AtmosphereParameters atmosphere = GetAtmosphereParameters(constants);
+    float3 sunDirection = normalize(perFrameData.sunDirection);
+    uint2 coord = GlobalInvocationID.xy;
+    float2 pixelCoord = float2(coord) + 0.5f;
+	float2 uv = pixelCoord / float2(width, height);
+	float viewHeight;
+	float viewZenithCosAngle;
+	UvToLutTransmittanceParams(atmosphere, viewHeight, viewZenithCosAngle, uv);
+	
+	const float3 rayOrigin = float3(0.0f, 0.0f, viewHeight);
+	const float3 rayDirection = float3(0.0f, sqrt(1.0f - viewZenithCosAngle * viewZenithCosAngle), viewZenithCosAngle);
+	const bool ground = false;
+	const float sampleCount = 40.0f;
+	const float depth = -1.0f;
+	const float2 rayMarchMinMaxSPP = float2(constants.rayMarchMinSPP, constants.rayMarchMaxSPP);
+	const float3 sunIlluminanceScale = perFrameData.sunIlluminanceScale;
+	const float4x4 invViewProjectionMatrix = perFrameData.invViewProjectionMatrix;
+	const bool variableSampleCount = false;
+	const bool mieRayPhase = false;
+	const bool multiScatApprox = false;
+	
+    float3 transmittance = exp(-IntegrateScatteredLuminance(
+		uv,
+		depth,
+		rayOrigin,
+		rayDirection, 
+		sunDirection,
+		atmosphere, 
+		ground, 
+		sampleCount,
+		rayMarchMinMaxSPP,
+		sunIlluminanceScale,
+		invViewProjectionMatrix,
+		variableSampleCount, 
+		mieRayPhase, 
+		multiScatApprox).opticalDepth);
+
+    transmittanceLut[coord] = float4(transmittance, 1.0f);
+}

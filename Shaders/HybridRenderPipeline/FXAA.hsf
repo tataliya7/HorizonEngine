@@ -1,0 +1,74 @@
+#include "../ShaderCommon.hsf"
+#include "HybridRenderPipelineCommon.hsf"
+
+#define FXAA_PC 1
+#define FXAA_HLSL_5 1
+#define FXAA_QUALITY__PRESET 39
+#include "../Fxaa3_11.hsf"
+
+#define FXAA_SHADER_PER_FRAME_DATA_SLOT       0
+#define FXAA_SHADER_INPUT_TEXTURE_SRV_SLOT    1
+#define FXAA_SHADER_OUTPUT_TEXTURE_UAV_SLOT   2
+
+PerFrameData GetPerFrameData()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(FXAA_SHADER_PER_FRAME_DATA_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<PerFrameData>(bufferIndex & 0xffff);
+}
+
+Texture2D GetInputTextureSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(FXAA_SHADER_INPUT_TEXTURE_SRV_SLOT)];
+}
+
+RWTexture2D<float4> GetOutputTextureUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(FXAA_SHADER_OUTPUT_TEXTURE_UAV_SLOT)];
+}
+
+[numthreads(8, 8, 1)]
+void FxaaCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{
+    PerFrameData perFrameData = GetPerFrameData();
+    uint width = perFrameData.targetResolutionWidth;
+    uint height = perFrameData.targetResolutionHeight;
+    
+    if (GlobalInvocationID.x >= width || GlobalInvocationID.y >= height) 
+	{
+		return;
+	}
+
+    Texture2D inputTexture = GetInputTextureSRV();
+    RWTexture2D<float4> outputTexture = GetOutputTextureUAV();
+
+    FxaaTex fxaaTexture;
+    fxaaTexture.tex = inputTexture;
+    fxaaTexture.smpl = SAMPLER_LINEAR_CLAMP;
+
+    float invScreenWidthInPixels = 1.0 / width;
+    float invScreenHeightInPixels = 1.0 / height;
+
+    float2 uv = (GlobalInvocationID.xy + 0.5) * float2(invScreenWidthInPixels, invScreenHeightInPixels);
+    float2 fxaaQualityRcpFrame = float2(invScreenWidthInPixels, invScreenHeightInPixels);
+    float fxaaQualitySubpix = 1.00;
+    float fxaaQualityEdgeThreshold = 0.125;
+    float fxaaQualityEdgeThresholdMin = 0.0833;
+
+    outputTexture[GlobalInvocationID.xy] = FxaaPixelShader(
+        uv,
+        0,
+        fxaaTexture,
+        fxaaTexture,
+        fxaaTexture,
+        fxaaQualityRcpFrame,
+        0,
+        0,
+        0,
+        fxaaQualitySubpix,
+        fxaaQualityEdgeThreshold,
+        fxaaQualityEdgeThresholdMin,
+        0,
+        0,
+        0,
+        0);
+}

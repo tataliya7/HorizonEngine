@@ -1,0 +1,56 @@
+#include "../ShaderCommon.hsf"
+#include "HybridRenderPipelineCommon.hsf"
+#include "CascadedShadowMapCommon.hsf"
+
+#define SHADOW_MAP_SHADER_PER_FRAME_DATA_SLOT                       0
+#define SHADOW_MAP_SHADER_VERTEX_BUFFER0_SLOT                       1
+#define SHADOW_MAP_SHADER_WORLD_MATRIX_BUFFER_SLOT                  2
+#define SHADOW_MAP_SHADER_SHADOW_MAP_SHADER_PARAMETERS_SLOT         3
+
+PerFrameData GetPerFrameData()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(SHADOW_MAP_SHADER_PER_FRAME_DATA_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<PerFrameData>(bufferIndex & 0xffff);
+}
+
+float3 GetVertexPosition(uint vertexIndex)
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(SHADOW_MAP_SHADER_VERTEX_BUFFER0_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<float3>((bufferIndex & 0xffff) + vertexIndex * sizeof(float3));
+}
+
+float4x4 GetWorldMatrix()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(SHADOW_MAP_SHADER_WORLD_MATRIX_BUFFER_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<float4x4>((bufferIndex & 0xffff) * sizeof(float4x4));
+}
+
+ShadowMapShaderParameters GetShadowMapShaderParameters()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(SHADOW_MAP_SHADER_SHADOW_MAP_SHADER_PARAMETERS_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<ShadowMapShaderParameters>(bufferIndex & 0xffff);
+}
+
+struct ShadowMapVSToPS
+{
+    float4 clipPosition : SV_POSITION;
+};
+
+void ShadowMapVS(uint vertexIndex : SV_VertexID, out ShadowMapVSToPS output)
+{
+    PerFrameData perFrameData = GetPerFrameData();
+    float4x4 worldMatrix = GetWorldMatrix();
+    ShadowMapShaderParameters shadowMapParameters = GetShadowMapShaderParameters();
+    float cascadeIndex = SHADER_ARGUMENTS_DATA(0);
+
+    float3 localPosition =  GetVertexPosition(vertexIndex);
+    float3 worldPosition = mul(float4(localPosition, 1.0), worldMatrix).xyz;
+    float4 clipPosition = mul(float4(worldPosition, 1.0), shadowMapParameters.viewProjectionMatrix[cascadeIndex]);
+
+    output.clipPosition = clipPosition;
+}
+
+void ShadowMapPS(in ShadowMapVSToPS input) 
+{
+
+}

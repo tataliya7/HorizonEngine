@@ -1,0 +1,33 @@
+
+float CalculateTargetExposure(float averageLuminance, float exposureCompensation)
+{
+    float exposure = exposureCompensation / max(1e-4, averageLuminance);
+    return exposure;
+}
+
+float InterpolateExposure(float oldExposure, float newExposure, float deltaTime, float speedUp, float speedDown)
+{
+    float diff = newExposure - oldExposure;
+    float speed = (diff > 0.0) ? speedUp : speedDown;
+    // Exponential decay
+    float exposure = oldExposure + diff * (1.0 - exp2(-deltaTime * speed));
+    return exposure;
+}
+
+[numthreads(1, 1, 1)]
+void EyeAdaptationCS(uint2 DispatchThreadId : SV_DispatchThreadID)
+{
+    float4 outColor = 0;
+
+	float averageLuminance = CalculateAverageLuminance(HistogramTexture);
+
+    float avgLuminance = GetAverageLuminance(_HistogramBuffer, _Params1, maxValue, _ScaleOffsetRes.xy);
+
+    float targetExposure = CalculateTargetExposure(averageLuminance);
+
+    float oldExposure = inputTexture[uint2(0, 0)].x;
+
+    float estimatedExposure = InterpolateExposure(oldExposure, targetExposure, deltaTime, speedUp, speedDown);
+
+    outputTexture[uint2(0, 0)].x = estimatedExposure;
+}

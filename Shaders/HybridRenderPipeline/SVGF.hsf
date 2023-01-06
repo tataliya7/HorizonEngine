@@ -1,0 +1,544 @@
+/***************************************************************************
+ # Copyright (c) 2015-21, NVIDIA CORPORATION. All rights reserved.
+ #
+ # Redistribution and use in source and binary forms, with or without
+ # modification, are permitted provided that the following conditions
+ # are met:
+ #  * Redistributions of source code must retain the above copyright
+ #    notice, this list of conditions and the following disclaimer.
+ #  * Redistributions in binary form must reproduce the above copyright
+ #    notice, this list of conditions and the following disclaimer in the
+ #    documentation and/or other materials provided with the distribution.
+ #  * Neither the name of NVIDIA CORPORATION nor the names of its
+ #    contributors may be used to endorse or promote products derived
+ #    from this software without specific prior written permission.
+ #
+ # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS "AS IS" AND ANY
+ # EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ # IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ # PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ # CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ # EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ # PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ # PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ # OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ **************************************************************************/
+
+#include "../ShaderCommon.hsf"
+#include "HybridRenderPipelineCommon.hsf"
+
+#define SVGF_SHADER_PER_FRAME_DATA_SLOT               0
+#define SVGF_SHADER_SHADOW_MASK_SRV_SLOT              1
+#define SVGF_SHADER_GBUFFER1_SRV_SLOT                 2
+#define SVGF_SHADER_LINEAR_DEPTH_BUFFER_SRV_SLOT      3
+#define SVGF_SHADER_MOTION_VECTORS_SRV_SLOT           4
+#define SVGF_SHADER_ILLUMINATION_UAV_SLOT             5
+#define SVGF_SHADER_MOMENTS_UAV_SLOT                  6
+#define SVGF_SHADER_HITORY_LENGTH_UAV_SLOT            7
+#define SVGF_SHADER_PREV_GBUFFER1_SRV_SLOT            8
+#define SVGF_SHADER_PREV_LINEAR_DEPTH_SRV_SLOT        9
+#define SVGF_SHADER_PREV_ILLUMINATION_UAV_SLOT        10
+#define SVGF_SHADER_PREV_MOMENTS_UAV_SLOT             11
+#define SVGF_SHADER_PREV_HISTORY_LENGTH_UAV_SLOT      12
+#define SVGF_SHADER_FILTERED_ILLUMINATION_UAV_SLOT    13
+
+PerFrameData GetPerFrameData()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(SVGF_SHADER_PER_FRAME_DATA_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<PerFrameData>(bufferIndex & 0xffff);
+}
+
+Texture2D GetMotionVectorsSRV()
+{
+	return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_MOTION_VECTORS_SRV_SLOT)];
+}
+
+Texture2D GetShadowMaskSRV()
+{
+	return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_SHADOW_MASK_SRV_SLOT)];
+}
+
+Texture2D GetGBuffer1SRV()
+{
+	return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_GBUFFER1_SRV_SLOT)];
+}
+
+Texture2D GetPrevGBuffer1SRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_PREV_GBUFFER1_SRV_SLOT)];
+}
+
+Texture2D GetLinearDepthBufferSRV()
+{
+	return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_LINEAR_DEPTH_BUFFER_SRV_SLOT)];
+}
+
+Texture2D GetPrevLinearDepthBufferSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_PREV_LINEAR_DEPTH_SRV_SLOT)];
+}
+
+RWTexture2D<float4> GetIlluminationUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_ILLUMINATION_UAV_SLOT)];
+}
+
+RWTexture2D<float4> GetMomentsUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_MOMENTS_UAV_SLOT)];
+}
+
+RWTexture2D<float4> GetHistoryLengthUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_HITORY_LENGTH_UAV_SLOT)];
+}
+
+RWTexture2D<float4> GetPrevIlluminationUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_PREV_ILLUMINATION_UAV_SLOT)];
+}
+
+RWTexture2D<float4> GetPrevMomentsUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_PREV_MOMENTS_UAV_SLOT)];
+}
+
+RWTexture2D<float4> GetPrevHistoryLengthUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_PREV_HISTORY_LENGTH_UAV_SLOT)];
+}
+
+RWTexture2D<float4> GetFilteredIlluminationUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(SVGF_SHADER_FILTERED_ILLUMINATION_UAV_SLOT)];
+}
+
+float computeWeight(
+    float depthCenter, float depthP, float phiDepth,
+    float3 normalCenter, float3 normalP, float phiNormal,
+    float luminanceIllumCenter, float luminanceIllumP, float phiIllum)
+{
+    const float weightNormal  = pow(saturate(dot(normalCenter, normalP)), phiNormal);
+    const float weightZ       = (phiDepth == 0) ? 0.0f : abs(depthCenter - depthP) / phiDepth;
+    const float weightLillum  = abs(luminanceIllumCenter - luminanceIllumP) / phiIllum;
+
+    const float weightIllum   = exp(0.0 - max(weightLillum, 0.0) - max(weightZ, 0.0)) * weightNormal;
+
+    return weightIllum;
+}
+
+float3 demodulate(float3 c, float3 albedo)
+{
+    return c / max(albedo, float3(0.001, 0.001, 0.001));
+}
+
+bool isReprjValid(int2 size, int2 coord, float Z, float Zprev, float fwidthZ, float3 normal, float3 normalPrev, float fwidthNormal)
+{
+    return true;
+    // check whether reprojected pixel is inside of the screen
+    if (any(coord < int2(1, 1)) || any(coord > size - int2(1, 1))) return false;
+
+    // check if deviation of depths is acceptable
+    if (abs(Zprev - Z) / (fwidthZ + 1e-2f) > 10.f) return false;
+
+    // check normals for compatibility
+    if (distance(normal, normalPrev) / (fwidthNormal + 1e-2) > 16.0) return false;
+
+    return true;
+}
+
+bool loadPrevData(uint2 ipos, uint2 imageDim, out float4 prevIllum, out float2 prevMoments, out float historyLength)
+{
+    float2 pixelCenter = ipos + 0.5;
+
+    Texture2D motionVectors = GetMotionVectorsSRV();
+    Texture2D linearDepthBuffer = GetLinearDepthBufferSRV();
+    Texture2D gbuffer1 = GetGBuffer1SRV();
+
+    RWTexture2D<float4> gPrevIllum = GetPrevIlluminationUAV();
+    RWTexture2D<float4> gPrevMoments = GetPrevMomentsUAV();
+    RWTexture2D<float4> gPrevHistoryLength = GetPrevHistoryLengthUAV();
+    Texture2D gPrevLinearZ = GetPrevLinearDepthBufferSRV();
+    Texture2D gPrevGBuffer1 = GetPrevGBuffer1SRV();
+
+    const float2 motion = motionVectors[ipos].xy;
+    const float normalFwidth = linearDepthBuffer[ipos].w;
+
+    const int2 iposPrev = int2(pixelCenter + motion.xy * imageDim);
+
+    float2 depth = linearDepthBuffer[ipos].xy;
+    float3 normal = gbuffer1[ipos].xyz;
+
+    prevIllum   = 0;
+    prevMoments = 0;
+
+    bool v[4];
+    const float2 posPrev = floor(pixelCenter) + motion.xy * imageDim;
+    const int2 offset[4] = { int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1) };
+
+    // check for all 4 taps of the bilinear filter for validity
+    bool valid = false;
+    for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
+    {
+        int2 loc = int2(posPrev) + offset[sampleIdx];
+        float2 depthPrev = gPrevLinearZ[loc].xy;
+        float3 normalPrev = gPrevGBuffer1[loc].xyz;
+
+        v[sampleIdx] = isReprjValid(imageDim, iposPrev, depth.x, depthPrev.x, depth.y, normal, normalPrev, normalFwidth);
+
+        valid = valid || v[sampleIdx];
+    }
+
+    if (valid)
+    {
+        float sumw = 0;
+        float x = frac(posPrev.x);
+        float y = frac(posPrev.y);
+
+        // bilinear weights
+        const float w[4] = { (1 - x) * (1 - y),
+                                  x  * (1 - y),
+                             (1 - x) *      y,
+                                  x  *      y };
+
+        // perform the actual bilinear interpolation
+        for (int sampleIdx = 0; sampleIdx < 4; sampleIdx++)
+        {
+            const int2 loc = int2(posPrev) + offset[sampleIdx];
+            if (v[sampleIdx])
+            {
+                prevIllum   += w[sampleIdx] * gPrevIllum[loc];
+                prevMoments += w[sampleIdx] * gPrevMoments[loc].xy;
+                sumw        += w[sampleIdx];
+             }
+        }
+
+        // redistribute weights in case not all taps were used
+        valid = (sumw >= 0.01);
+        prevIllum   = valid ? prevIllum / sumw   : float4(0, 0, 0, 0);
+        prevMoments = valid ? prevMoments / sumw : float2(0, 0);
+    }
+
+    if (!valid) // perform cross-bilateral filter in the hope to find some suitable samples somewhere
+    {
+        float nValid = 0.0;
+
+        // this code performs a binary descision for each tap of the cross-bilateral filter
+        const int radius = 1;
+        for (int yy = -radius; yy <= radius; yy++)
+        {
+            for (int xx = -radius; xx <= radius; xx++)
+            {
+                const int2 p = iposPrev + int2(xx, yy);
+                const float2 depthFilter = gPrevLinearZ[p].xy;
+                const float3 normalFilter = gPrevGBuffer1[p].xyz;
+
+                if (isReprjValid(imageDim, iposPrev, depth.x, depthFilter.x, depth.y, normal, normalFilter, normalFwidth))
+                {
+                    prevIllum += gPrevIllum[p];
+                    prevMoments += gPrevMoments[p].xy;
+                    nValid += 1.0;
+                }
+            }
+        }
+        if (nValid > 0)
+        {
+            valid = true;
+            prevIllum   /= nValid;
+            prevMoments /= nValid;
+        }
+    }
+
+    if (valid)
+    {
+        // crude, fixme
+        historyLength = gPrevHistoryLength[iposPrev].x;
+    }
+    else
+    {
+        prevIllum   = float4(0,0,0,0);
+        prevMoments = float2(0,0);
+        historyLength = 0;
+    }
+
+    return valid;
+}
+
+[numthreads(8, 8, 1)]
+void SVGFReprojectCS(uint3 DispatchThreadID : SV_DispatchThreadID)
+{
+    uint2 pixelCoord = DispatchThreadID.xy;
+
+    PerFrameData perFrameData = GetPerFrameData();
+    uint width = perFrameData.renderResolutionWidth;
+    uint height = perFrameData.renderResolutionHeight;
+    if (DispatchThreadID.x >= width || DispatchThreadID.y >= height) 
+	{
+		return;
+	}
+
+    float       gPhiColor     = SHADER_ARGUMENTS_DATA(0);
+    float       gPhiNormal    = SHADER_ARGUMENTS_DATA(1);
+    float       gAlpha        = SHADER_ARGUMENTS_DATA(2);
+    float       gMomentsAlpha = SHADER_ARGUMENTS_DATA(3);
+
+    Texture2D shadowMask = GetShadowMaskSRV();
+    //float3 illumination = demodulate(gColor[ipos].rgb - gEmission[ipos].rgb, gAlbedo[ipos].rgb);
+    float3 illumination = shadowMask[pixelCoord].rrr;
+
+    float historyLength;
+    float4 prevIllumination;
+    float2 prevMoments;
+    bool success = loadPrevData(pixelCoord, uint2(width, height), prevIllumination, prevMoments, historyLength);
+    historyLength = min(32.0f, success ? historyLength + 1.0f : 1.0f);
+
+    // this adjusts the alpha for the case where insufficient history is available.
+    // It boosts the temporal accumulation to give the samples equal weights in
+    // the beginning.
+    const float alpha        = success ? max(gAlpha,        1.0 / historyLength) : 1.0;
+    const float alphaMoments = success ? max(gMomentsAlpha, 1.0 / historyLength) : 1.0;
+
+    // compute first two moments of luminance
+    float2 moments;
+    moments.r = Luminance(illumination);
+    moments.g = moments.r * moments.r;
+
+    // temporal integration of the moments
+    moments = lerp(prevMoments, moments, alphaMoments);
+
+    float variance = max(0, moments.g - moments.r * moments.r);
+
+    RWTexture2D<float4> illuminationUAV = GetIlluminationUAV();
+    RWTexture2D<float4> momentsUAV = GetMomentsUAV();
+    RWTexture2D<float4> historyLengthUAV = GetHistoryLengthUAV();
+
+    // temporal integration of illumination
+    // variance is propagated through the alpha channel
+    illuminationUAV[pixelCoord] = float4(lerp(prevIllumination.rgb, illumination, alpha), variance);
+    momentsUAV[pixelCoord] = float4(moments.r, moments.g, 0, 0);
+    historyLengthUAV[pixelCoord] = historyLength;
+}
+
+[numthreads(8, 8, 1)]
+void SVGFFilterMomentsCS(uint3 DispatchThreadID : SV_DispatchThreadID)
+{
+    uint2 ipos = DispatchThreadID.xy;
+
+    PerFrameData perFrameData = GetPerFrameData();
+    uint width = perFrameData.renderResolutionWidth;
+    uint height = perFrameData.renderResolutionHeight;
+    if (DispatchThreadID.x >= width || DispatchThreadID.y >= height) 
+	{
+		return;
+	}
+
+    float       gPhiColor     = SHADER_ARGUMENTS_DATA(0);
+    float       gPhiNormal    = SHADER_ARGUMENTS_DATA(1);
+    float       gAlpha        = SHADER_ARGUMENTS_DATA(2);
+    float       gMomentsAlpha = SHADER_ARGUMENTS_DATA(3);
+
+    Texture2D linearDepthBuffer = GetLinearDepthBufferSRV();
+    Texture2D gbuffer1 = GetGBuffer1SRV();
+
+    RWTexture2D<float4> gIllumination = GetIlluminationUAV();
+    RWTexture2D<float4> gMoments = GetMomentsUAV();
+    RWTexture2D<float4> gHistoryLength = GetHistoryLengthUAV();
+
+    RWTexture2D<float4> output = GetFilteredIlluminationUAV();
+
+    float h = gHistoryLength[ipos].x;
+    int2 screenSize = int2(width, height);
+
+    if (h < 4.0) // not enough temporal history available
+    {
+        float sumWIllumination = 0.0;
+        float3 sumIllumination = float3(0.0, 0.0, 0.0);
+        float2 sumMoments = float2(0.0, 0.0);
+
+        const float4 illuminationCenter = gIllumination[ipos];
+        const float lIlluminationCenter = Luminance(illuminationCenter.rgb);
+
+        const float2 zCenter = linearDepthBuffer[ipos].xy;
+        if (zCenter.x < 0)
+        {
+            // current pixel does not a valid depth => must be envmap => do nothing
+            output[ipos] = gIllumination[ipos];
+            return;
+        }
+        const float3 nCenter = gbuffer1[ipos].xyz;
+        const float phiLIllumination = gPhiColor;
+        const float phiDepth = max(zCenter.y, 1e-8) * 3.0;
+
+        // compute first and second moment spatially. This code also applies cross-bilateral
+        // filtering on the input illumination.
+        const int radius = 3;
+
+        for (int yy = -radius; yy <= radius; yy++)
+        {
+            for (int xx = -radius; xx <= radius; xx++)
+            {
+                const int2 p = ipos + int2(xx, yy);
+                const bool inside = all(p >= int2(0,0)) && all(p < screenSize);
+                const bool samePixel = (xx == 0 && yy == 0);
+                const float kernel = 1.0;
+
+                if (inside)
+                {
+                    const float3 illuminationP = gIllumination[p].rgb;
+                    const float2 momentsP = gMoments[p].xy;
+                    const float lIlluminationP = Luminance(illuminationP.rgb);
+                    const float zP = linearDepthBuffer[p].x;
+                    const float3 nP = gbuffer1[p].xyz;
+
+                    const float w = computeWeight(
+                        zCenter.x, zP, phiDepth * length(float2(xx, yy)),
+                        nCenter, nP, gPhiNormal,
+                        lIlluminationCenter, lIlluminationP, phiLIllumination);
+
+                    sumWIllumination += w;
+                    sumIllumination += illuminationP * w;
+                    sumMoments += momentsP * w;
+                }
+            }
+        }
+
+        // Clamp sum to >0 to avoid NaNs.
+        sumWIllumination = max(sumWIllumination, 1e-6f);
+
+        sumIllumination /= sumWIllumination;
+        sumMoments /= sumWIllumination;
+
+        // compute variance using the first and second moments
+        float variance = sumMoments.g - sumMoments.r * sumMoments.r;
+
+        // give the variance a boost for the first frames
+        variance *= 4.0 / h;
+
+        output[ipos] = float4(sumIllumination, variance.r);
+        return;
+    }
+    // do nothing, pass data unmodified
+    output[ipos] = gIllumination[ipos];
+}
+
+// computes a 3x3 gaussian blur of the variance, centered around the current pixel
+float computeVarianceCenter(int2 ipos, RWTexture2D<float4> gIllumination)
+{
+    float sum = 0.f;
+
+    const float kernel[2][2] = {
+        { 1.0 / 4.0, 1.0 / 8.0  },
+        { 1.0 / 8.0, 1.0 / 16.0 }
+    };
+
+    const int radius = 1;
+    for (int yy = -radius; yy <= radius; yy++)
+    {
+        for (int xx = -radius; xx <= radius; xx++)
+        {
+            const int2 p = ipos + int2(xx, yy);
+            const float k = kernel[abs(xx)][abs(yy)];
+            sum += gIllumination[p].a * k;
+        }
+    }
+
+    return sum;
+}
+
+[numthreads(8, 8, 1)]
+void SVGFAtrousCS(uint3 DispatchThreadID : SV_DispatchThreadID)
+{    
+    uint2 ipos = DispatchThreadID.xy;
+
+    PerFrameData perFrameData = GetPerFrameData();
+    uint width = perFrameData.renderResolutionWidth;
+    uint height = perFrameData.renderResolutionHeight;
+    if (DispatchThreadID.x >= width || DispatchThreadID.y >= height) 
+	{
+		return;
+	}
+
+    float       gPhiColor     = SHADER_ARGUMENTS_DATA(0);
+    float       gPhiNormal    = SHADER_ARGUMENTS_DATA(1);
+    float       gAlpha        = SHADER_ARGUMENTS_DATA(2);
+    float       gMomentsAlpha = SHADER_ARGUMENTS_DATA(3);
+    float       gStepSize     = SHADER_ARGUMENTS_DATA(4);
+
+    Texture2D linearDepthBuffer = GetLinearDepthBufferSRV();
+    Texture2D gbuffer1 = GetGBuffer1SRV();
+
+    RWTexture2D<float4> gIllumination = GetIlluminationUAV();
+    RWTexture2D<float4> gHistoryLength = GetHistoryLengthUAV();
+    RWTexture2D<float4> filteredIllumination = GetFilteredIlluminationUAV();
+
+    int2 screenSize = int2(width, height);
+
+    const float epsVariance      = 1e-10;
+    const float kernelWeights[3] = { 1.0, 2.0 / 3.0, 1.0 / 6.0 };
+
+    // constant samplers to prevent the compiler from generating code which
+    // fetches the sampler descriptor from memory for each texture access
+    const float4 illuminationCenter = gIllumination[ipos];
+    const float lIlluminationCenter = Luminance(illuminationCenter.rgb);
+
+    // variance, filtered using 3x3 gaussin blur
+    const float var = computeVarianceCenter(ipos, gIllumination);
+
+    // number of temporally integrated pixels
+    const float historyLength = gHistoryLength[ipos].x;
+
+    const float2 zCenter = linearDepthBuffer[ipos].xy;
+    if (zCenter.x < 0)
+    {
+        // not a valid depth => must be envmap => do not filter
+        filteredIllumination[ipos] = illuminationCenter;
+        return;
+    }
+    const float3 nCenter = gbuffer1[ipos].xyz;
+
+    const float phiLIllumination   = gPhiColor * sqrt(max(0.0, epsVariance + var.r));
+    const float phiDepth     = max(zCenter.y, 1e-8) * gStepSize;
+
+    // explicitly store/accumulate center pixel with weight 1 to prevent issues
+    // with the edge-stopping functions
+    float sumWIllumination = 1.0;
+    float4 sumIllumination = illuminationCenter;
+
+    for (int yy = -2; yy <= 2; yy++)
+    {
+        for (int xx = -2; xx <= 2; xx++)
+        {
+            const int2 p     = ipos + int2(xx, yy) * gStepSize;
+            const bool inside = all(p >= int2(0,0)) && all(p < screenSize);
+
+            const float kernel = kernelWeights[abs(xx)] * kernelWeights[abs(yy)];
+
+            if (inside && (xx != 0 || yy != 0)) // skip center pixel, it is already accumulated
+            {
+                const float4 illuminationP = gIllumination[p];
+                const float lIlluminationP = Luminance(illuminationP.rgb);
+                const float zP = linearDepthBuffer[p].x;
+                const float3 nP = gbuffer1[p].xyz;
+
+                // compute the edge-stopping functions
+                const float2 w = computeWeight(
+                    zCenter.x, zP, phiDepth * length(float2(xx, yy)),
+                    nCenter, nP, gPhiNormal,
+                    lIlluminationCenter, lIlluminationP, phiLIllumination);
+
+                const float wIllumination = w.x * kernel;
+
+                // alpha channel contains the variance, therefore the weights need to be squared, see paper for the formula
+                sumWIllumination += wIllumination;
+                sumIllumination  += float4(wIllumination.xxx, wIllumination * wIllumination) * illuminationP;
+            }
+        }
+    }
+
+    // renormalization is different for variance, check paper for the formula
+    float4 result = float4(sumIllumination / float4(sumWIllumination.xxx, sumWIllumination * sumWIllumination));
+
+    filteredIllumination[ipos] = result;
+}

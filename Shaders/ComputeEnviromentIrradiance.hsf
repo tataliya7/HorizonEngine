@@ -1,0 +1,59 @@
+#include "ShaderCommon.hsf"
+#include "BRDFCommon.hsf"
+
+#define COMPUTE_ENVIRONMENT_IRRADIANCE_SHADER_ENVIROMENT_MAP_SRV_SLOT               0
+#define COMPUTE_ENVIRONMENT_IRRADIANCE_SHADER_IRRADIANCE_ENVIROMENT_MAP_UAV_SLOT    1
+
+static const uint NumSamples = 1024;
+
+TextureCube GetEnviromentMapSRV()
+{
+	return BindlessTextureCubes[SHADER_ARGUMENTS_INDEX(COMPUTE_ENVIRONMENT_IRRADIANCE_SHADER_ENVIROMENT_MAP_SRV_SLOT)];
+}
+
+RWTexture2DArray<float4> GetIrradianceEnviromentMapUAV()
+{
+    return BindlessRWTexture2DArrays[SHADER_ARGUMENTS_INDEX(COMPUTE_ENVIRONMENT_IRRADIANCE_SHADER_IRRADIANCE_ENVIROMENT_MAP_UAV_SLOT)];
+}
+
+[numthreads(8, 8, 6)]
+void ComputeEnviromentIrradianceCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{
+	RWTexture2DArray<float4> irradianceEnviromentMap = GetIrradianceEnviromentMapUAV();
+	
+	uint width, height, faces;
+    irradianceEnviromentMap.GetDimensions(width, height, faces);
+	if (GlobalInvocationID.x >= width || GlobalInvocationID.y >= height) 
+    {
+        return;
+    }
+
+	uint3 coord = GlobalInvocationID;
+    float2 uv = (coord.xy + 0.5) / float2(width, height);
+
+	float3 N = CalculateCubemapVector(uv, coord.z);
+	float3 T;
+	float3 B;
+	CreateOrthonormalBasis(T, B, N);
+
+	TextureCube enviromentMap = GetEnviromentMapSRV();
+	uint enviromentMapMipLevel = (uint)SHADER_ARGUMENTS_DATA(0);
+
+	// Monte carlo integration of hemispherical irradiance
+	float3 irradiance = 0.0;
+	for (uint i = 0; i < NumSamples; i++)
+	{
+		float2 Xi = Hammersley2D(i, NumSamples);
+		float3 L = TangentToWorld(UniformSampleHemisphere(Xi), T, B, N);
+		float NdotL = dot(N, L);
+		if (NdotL > 0.0)
+		{
+			irradiance += enviromentMap.SampleLevel(SAMPLER_LINEAR_WARP, L, enviromentMapMipLevel).rgb * NdotL;
+		}
+	}
+	// pdf = 1.0 / (2.0 * PI)
+	// There is no PI here because we do not divide by PI in lighting pass
+	irradiance = irradiance * 2.0 * PI / float(NumSamples);
+
+	irradianceEnviromentMap[coord] = float4(irradiance, 1.0);
+}

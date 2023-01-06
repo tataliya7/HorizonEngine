@@ -1,0 +1,97 @@
+#include "../ShaderCommon.hsf"
+#include "HybridRenderPipelineCommon.hsf"
+#include "PostProcessCommon.hsf"
+
+#define DOF_SHADER_PER_FRAME_DATA_SLOT       0
+#define DOF_SHADER_DEPTH_BUFFER_SRV_SLOT     1
+#define DOF_SHADER_INPUT_TEXTURE_SRV_SLOT    2
+#define DOF_SHADER_OUTPUT_TEXTURE_UAV_SLOT   3
+
+PerFrameData GetPerFrameData()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(DOF_SHADER_PER_FRAME_DATA_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<PerFrameData>(bufferIndex & 0xffff);
+}
+
+Texture2D GetDepthBufferSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(DOF_SHADER_DEPTH_BUFFER_SRV_SLOT)];
+}
+
+Texture2D GetInputTextureSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(DOF_SHADER_INPUT_TEXTURE_SRV_SLOT)];
+}
+
+RWTexture2D<float4> GetOutputTextureUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(DOF_SHADER_OUTPUT_TEXTURE_UAV_SLOT)];
+}
+
+// @see: https://blog.tuxedolabs.com/2018/05/04/bokeh-depth-of-field-in-single-pass.html
+// @see: https://github.com/Erfan-Ahmadi/BokehDepthOfField/blob/master/src/29_DepthOfField/Shaders/Vulkan/singlepass/dof.frag
+static const float GOLDEN_ANGLE = 2.39996323;
+static const float MAX_BLUR_SIZE = 20.0;
+static const float RADIUS_SCALE = 1.5; // Smaller = nicer blur, larger = faster
+
+#define uFar 10.0
+
+float GetBlurSize(float depth, float focusPoint, float focusScale)
+{
+	float coc = clamp((1.0 / focusPoint - 1.0 / depth) * focusScale, -1.0, 1.0);
+	return abs(coc) * MAX_BLUR_SIZE;
+}
+
+[numthreads(POST_PROCESS_THREAD_GROUP_SIZE, POST_PROCESS_THREAD_GROUP_SIZE, 1)]
+void DepthOfFieldCS(uint3 DispatchThreadID : SV_DispatchThreadID)
+{
+	PerFrameData perFrameData = GetPerFrameData();
+    uint width = perFrameData.targetResolutionWidth;
+    uint height = perFrameData.targetResolutionHeight;
+	
+	if (DispatchThreadID.x >= width || DispatchThreadID.y >= height) 
+	{
+		return;
+	}
+    
+	Texture2D depthBuffer = GetDepthBufferSRV();
+	Texture2D inputTexture = GetInputTextureSRV();
+    RWTexture2D<float4> outputTexture = GetOutputTextureUAV();
+
+	uint2 pixelCoord = DispatchThreadID.xy;
+	float2 pixelSize = 1.0 / float2(width, height);
+	float2 pixelCenter = float2(pixelCoord) + 0.5;
+	float2 uv = pixelCenter * pixelSize;
+	//float focusPoint = LinearizeDepth(depthBuffer.SampleLevel(SAMPLER_LINEAR_CLAMP, float2(0.5, 0.5), 0).r, perFrameData.nearPlane, farPlane);
+	float focusPoint = 7.0;
+	float focusScale = 5.0;
+
+	float centerDepth = depthBuffer[pixelCoord].r * uFar;
+	float centerSize = GetBlurSize(centerDepth, focusPoint, focusScale);
+	float3 color = inputTexture[pixelCoord].rgb;
+
+	float total = 1.0;
+	float radius = RADIUS_SCALE;
+	for (float ang = 0.0; radius < MAX_BLUR_SIZE; ang += GOLDEN_ANGLE)
+	{
+		float2 tc = uv + float2(cos(ang), sin(ang)) * pixelSize * radius;
+
+		float3 sampleColor = inputTexture.SampleLevel(SAMPLER_LINEAR_CLAMP, tc, 0).rgb;
+		float sampleDepth = depthBuffer.SampleLevel(SAMPLER_LINEAR_CLAMP, tc, 0).r * uFar;
+		
+		float sampleSize = GetBlurSize(sampleDepth, focusPoint, focusScale);
+		
+		if (sampleDepth > centerDepth)
+		{
+			sampleSize = clamp(sampleSize, 0.0, centerSize * 2.0);
+		}
+		
+		float m = smoothstep(radius - 0.5, radius + 0.5, sampleSize);
+		color += lerp(color / total, sampleColor, m);
+
+		total += 1.0;   
+		radius += RADIUS_SCALE / radius;
+	}
+	
+	outputTexture[pixelCoord] = float4(color / total, 1.0);
+}

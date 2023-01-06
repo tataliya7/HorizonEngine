@@ -1,0 +1,44 @@
+struct PerFrameData
+{
+	uint frameIndex;
+	float gamma;
+	float exposure;
+	float3 sunDirection;
+	float3 solarIrradiance;
+	float solarAngularRadius;
+	float3 sunIlluminanceScale;
+	float3 cameraPosition;
+	float nearPlane;
+	float farPlane;
+	float4x4 viewMatrix;
+	float4x4 invViewMatrix;
+	float4x4 projectionMatrix;
+	float4x4 invProjectionMatrix;
+	float4x4 viewProjectionMatrix;
+	float4x4 invViewProjectionMatrix;
+	float4x4 prevViewProjectionMatrix;
+	uint renderResolutionWidth;
+	uint renderResolutionHeight;
+	uint targetResolutionWidth;
+	uint targetResolutionHeight;
+};
+
+float4 SRGBToLinear(float4 sRGB, float gamma)
+{
+// #ifdef SRGB_FAST_APPROXIMATION
+	float3 linearColor = pow(sRGB.xyz, gamma);
+// #else // SRGB_FAST_APPROXIMATION
+// 	float3 bLess = step(0.04045, sRGB.xyz);
+// 	float3 linear = lerp(sRGB.xyz / 12.92, pow((sRGB.xyz + 0.055) / 1.055, 2.4), bLess);
+// #endif // SRGB_FAST_APPROXIMATION
+	return float4(linearColor, sRGB.w);
+}
+
+float3 GetPerpendicularVector(float3 u)
+{
+	float3 a = abs(u);
+	uint xm = ((a.x - a.y) < 0 && (a.x - a.z) < 0) ? 1 : 0;
+	uint ym = (a.y - a.z) < 0 ? (1 ^ xm) : 0;
+	uint zm = 1 ^ (xm | ym);
+	return cross(u, float3(xm, ym, zm));
+}

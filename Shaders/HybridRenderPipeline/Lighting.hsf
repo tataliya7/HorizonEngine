@@ -1,0 +1,283 @@
+#include "../ShaderCommon.hsf"
+#include "../BRDFCommon.hsf"
+#include "../PrincipledBRDF.hsf"
+#include "HybridRenderPipelineCommon.hsf"
+#include "CascadedShadowMapCommon.hsf"
+
+#define LIGHTING_SHADER_PER_FRAME_DATA_SLOT                              0
+#define LIGHTING_SHADER_GBUFFER0_SRV_SLOT                                1
+#define LIGHTING_SHADER_GBUFFER1_SRV_SLOT                                2
+#define LIGHTING_SHADER_GBUFFER2_SRV_SLOT                                3
+#define LIGHTING_SHADER_GBUFFER3_SRV_SLOT                                4
+#define LIGHTING_SHADER_AMBIENT_OCCLUSION_TEXTURE_SRV_SLOT               5
+#define LIGHTING_SHADER_SHADOW_MASK_SRV_SLOT                             6
+#define LIGHTING_SHADER_SCENE_COLOR_UAV_SLOT                             7
+#define LIGHTING_SHADER_BRDF_LUT_SRV_SLOT                                8
+#define LIGHTING_SHADER_SKY_LIGHT_IRRADIANCE_ENVIRONMENT_MAP_SRV_SLOT    9
+#define LIGHTING_SHADER_SKY_LIGHT_FILTERED_ENVIRONMENT_MAP_SRV_SLOT      10
+
+PerFrameData GetPerFrameData()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_PER_FRAME_DATA_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<PerFrameData>(bufferIndex & 0xffff);
+}
+
+Texture2D GetGBuffer0SRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_GBUFFER0_SRV_SLOT)];
+}
+
+Texture2D GetGBuffer1SRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_GBUFFER1_SRV_SLOT)];
+}
+
+Texture2D GetGBuffer2SRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_GBUFFER2_SRV_SLOT)];
+}
+
+Texture2D GetGBuffer3SRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_GBUFFER3_SRV_SLOT)];
+}
+
+Texture2D GetAmbientOcclusionTextureSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_AMBIENT_OCCLUSION_TEXTURE_SRV_SLOT)];
+}
+
+Texture2D GetShadowMaskSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_SHADOW_MASK_SRV_SLOT)];
+}
+
+RWTexture2D<float4> GetSceneColorUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_SCENE_COLOR_UAV_SLOT)];
+}
+
+Texture2D GetBRDFLutSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_BRDF_LUT_SRV_SLOT)];
+}
+
+TextureCube GetSkyLightIrradianceEnvironmentMapSRV()
+{
+    return BindlessTextureCubes[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_SKY_LIGHT_IRRADIANCE_ENVIRONMENT_MAP_SRV_SLOT)];
+}
+
+TextureCube GetSkyLightFilteredEnvironmentMapSRV()
+{
+    return BindlessTextureCubes[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_SKY_LIGHT_FILTERED_ENVIRONMENT_MAP_SRV_SLOT)];
+}
+
+struct Surface
+{
+	float3 P; // World space position
+	float3 N; // World space normal
+	float3 V; // World space view vector
+	float3 R; // World space reflection vector
+
+	float NdotV;
+
+	// Principled BRDF
+	float4 baseColor;
+    float subsurface;
+    float metallic;
+    float specular;
+    float roughness;
+    float specularTint;
+    float anisotropic;
+    float anisotropicRotation;
+    float sheen;
+    float sheenTint;
+    float clearcoat;
+    float clearcoatGloss;
+
+	float3 emission;
+	float emissionStrength;
+	float ambientOcclusion;
+	float specularOcclusion;
+
+	float3 F0;
+	float3 F;
+};
+
+struct LightData 
+{
+	float3 color;
+	float3 direction;
+};
+
+float3 ComputeDirectionalLightContribution(Surface surface, LightData light, float NdotV, float shadowMask)
+{
+	float3 irradiance = light.color;
+	float3 Li = light.direction;
+	float3 N = surface.N;
+	float3 V = surface.V;
+	float metallic = surface.metallic;
+	float roughness = surface.roughness;
+	float4 baseColor = surface.baseColor;
+
+	float dielectricSpecular = 0.08 * surface.specular;
+	float3 F0 = lerp(dielectricSpecular, baseColor.rgb, metallic);
+
+	float cosLi = clamp(dot(N, Li), 0.0, 1.0);
+	
+	float3 result = 0.0;
+	float lightIntensity = 1.0;
+	float visibility = shadowMask;
+	if(cosLi > 0.0)
+	{
+		float3 Lh = normalize(Li + V);
+		float cosLh = clamp(dot(N, Lh), 0.0, 1.0);
+
+		float3 F = FresnelSchlick(F0, NdotV);
+		float D = D_GGX(cosLh, roughness);
+		float G = SchlickGGX(cosLi, NdotV, roughness);
+		float3 Kd = (1.0 - F) * (1.0 - metallic);
+
+		float3 diffuse = Kd * baseColor.rgb / PI;
+		float3 specular = (F * D * G) / max(0.001, 4.0 * cosLi * NdotV);
+		float3 radiance = irradiance * lightIntensity;
+
+		result += (diffuse + specular) * radiance * cosLi * visibility;
+	}
+	return result;
+}
+
+// IBL
+float3 ComputeSkyLightContribution(Surface surface, float NdotV)
+{
+	float3 color = 0.0;
+
+	float3 baseColor = surface.baseColor.rgb;
+	float metallic = surface.metallic;
+	float roughness = surface.roughness;
+	float specular = surface.specular;
+
+	float dielectricSpecular = 0.08 * specular;
+	float3 F0 = lerp(dielectricSpecular, baseColor, metallic);
+	float3 F90 = saturate(50.0 * dot(F0, 0.33));
+	float3 F = FresnelSchlick1994(F0, F90, NdotV);
+
+	Texture2D brdfLut = GetBRDFLutSRV();
+	TextureCube irradianceEnvironmentMap = GetSkyLightIrradianceEnvironmentMapSRV();
+	TextureCube filteredEnvironmentMap = GetSkyLightFilteredEnvironmentMapSRV();
+
+	// float3 F = FresnelSchlickRoughness(specularColor, NdotV, roughness);
+	float3 brdfDiffuse = baseColor * (1.0 / PI) * (1.0 - F) * (1.0 - metallic);
+
+	float3 irradiance = irradianceEnvironmentMap.SampleLevel(SAMPLER_LINEAR_WARP, surface.N, 0).rgb;
+	float3 diffuse = brdfDiffuse * irradiance;
+	color += diffuse;
+	
+	// Specular
+	uint width; uint height; uint numMipLevels;
+	filteredEnvironmentMap.GetDimensions(0, width, height, numMipLevels);
+
+	float linearRoughness = sqrt(roughness);
+
+	float lod = linearRoughness * (numMipLevels - 1);
+	float3 prefilteredColor = filteredEnvironmentMap.SampleLevel(SAMPLER_LINEAR_WARP, surface.R, lod).rgb;
+
+	// @note: When loading the texture, use CLAMP_TO_EDGE to ensure that values are read correctly.
+	float2 brdf = brdfLut.SampleLevel(SAMPLER_LINEAR_CLAMP, float2(NdotV, roughness), 0).rg;
+
+	float3 specularPart = (F * brdf.x + F90 * brdf.y) * prefilteredColor;
+	color += specularPart;
+
+	return color;
+}
+
+[numthreads(8, 8, 1)]
+void LightingCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
+{
+	PerFrameData perFrameData = GetPerFrameData();
+    uint width = perFrameData.renderResolutionWidth;
+    uint height = perFrameData.renderResolutionHeight;
+	if (GlobalInvocationID.x >= width || GlobalInvocationID.y >= height) 
+	{
+		return;
+	}
+    
+    uint2 coord = GlobalInvocationID.xy;
+
+	Texture2D gbuffer0 = GetGBuffer0SRV();
+	Texture2D gbuffer1 = GetGBuffer1SRV();
+	Texture2D gbuffer2 = GetGBuffer2SRV();
+	Texture2D gbuffer3 = GetGBuffer3SRV();
+
+	float4 gbuffer0Data = gbuffer0[coord];
+	float4 gbuffer1Data = gbuffer1[coord];
+	float4 gbuffer2Data = gbuffer2[coord];
+	float4 gbuffer3Data = gbuffer3[coord];
+
+	float3 position = gbuffer0Data.xyz;
+	float3 normal = gbuffer1Data.xyz;
+	float4 baseColor = gbuffer2Data;
+	float metallic = gbuffer0Data.w;
+	float roughness = gbuffer1Data.w;
+	float3 emission = gbuffer3Data.rgb;
+	float specular = 0.5;
+
+	Texture2D ambientOcclusionTexture = GetAmbientOcclusionTextureSRV();
+	float ambientOcclusion = ambientOcclusionTexture[coord].r;
+
+	Surface surface;
+	surface.P = position;
+	surface.N = normalize(normal);
+	surface.V = normalize(perFrameData.cameraPosition - position);
+	surface.R = normalize(reflect(-surface.V, surface.N));
+	surface.baseColor = baseColor;
+	surface.subsurface = 0.0;
+	surface.metallic = saturate(metallic);
+    surface.specular = saturate(specular);
+	surface.specularTint = 0.0;
+    surface.roughness = saturate(roughness);
+	surface.anisotropic = 0.0;
+	surface.sheen = 0.0;
+	surface.sheenTint = 0.5;
+	surface.clearcoat = 0.0;
+	surface.clearcoatGloss = 1.0;
+	surface.emission = emission;
+	surface.emissionStrength = 1.0;
+	surface.ambientOcclusion = 1.0; // surface.ambientOcclusion = ambientOcclusion;
+	surface.specularOcclusion = 1.0;
+	
+	float NdotV = max(0.0, dot(surface.N, surface.V));
+
+	float3 finalColor = 0.0;
+
+	LightData light;
+	light.color = perFrameData.solarIrradiance;
+	light.direction = -perFrameData.sunDirection;
+	
+	Texture2D shadowMask = GetShadowMaskSRV();
+ 	float visibility = shadowMask[coord].r;
+	finalColor += ComputeDirectionalLightContribution(surface, light, NdotV, visibility);
+
+	finalColor += ComputeSkyLightContribution(surface, NdotV);
+
+	finalColor += surface.emission * surface.emissionStrength;
+
+	// switch(cascadeIndex) 
+	// {
+	// 	case 0 :
+	// 		finalColor.rgb *= float3(1.0f, 0.25f, 0.25f);
+	// 		break;
+	// 	case 1 :
+	// 		finalColor.rgb *= float3(0.25f, 1.0f, 0.25f);
+	// 		break;
+	// 	case 2 :
+	// 		finalColor.rgb *= float3(0.25f, 0.25f, 1.0f);
+	// 		break;
+	// 	case 3 :
+	// 		finalColor.rgb *= float3(1.0f, 1.0f, 0.25f);
+	// 		break;
+	// }
+
+	RWTexture2D<float4> sceneColor = GetSceneColorUAV();
+	sceneColor[coord] = float4(finalColor, 1.0);
+}

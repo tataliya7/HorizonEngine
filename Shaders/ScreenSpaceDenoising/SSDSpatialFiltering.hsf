@@ -1,0 +1,151 @@
+#include "../ShaderCommon.hsf"
+
+#define SSD_SPATIAL_FILTERING_SHADER_INPUT_TEXTURE_SRV_SLOT                           0
+#define SSD_SPATIAL_FILTERING_SHADER_DEPTH_BUFFER_SRV_SLOT                            1
+#define SSD_SPATIAL_FILTERING_SHADER_OUTPUT_TEXTURE_SRV_SLOT                          2
+
+Texture2D GetInputTextureSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(SSD_SPATIAL_FILTERING_SHADER_INPUT_TEXTURE_SRV_SLOT)];
+}
+
+Texture2D GetDepthBufferSRV()
+{
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(SSD_SPATIAL_FILTERING_SHADER_DEPTH_BUFFER_SRV_SLOT)];
+}
+
+RWTexture2D<float4> GetOutputTextureUAV()
+{
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(SSD_SPATIAL_FILTERING_SHADER_OUTPUT_TEXTURE_SRV_SLOT)];
+}
+
+#if SSD_CONFIG_SIGNAL_TYPE == SIGNAL_PROCESSING_SHADOW_VISIBILITY_MASK
+
+#endif
+
+struct SSDKernelConfig
+{
+    uint kernelRadius;
+};
+
+void SSDAccumulateBoxKernel(SSDKernelConfig kernelConfig)
+{
+    // uint kernelRadius = kernelConfig.kernelRadius;
+
+    // [unroll]
+    // for (int x = -kernelRadius; x < kernelRadius; x++)
+    // {
+    //     [unroll]
+    //     for (int y = -kernelRadius; y < kernelRadius; y++)
+    //     {
+    //         float2 offset = float2(x, y);
+
+    //     }
+    // }
+}
+
+void SSDAccumulateSample(SSDKernelConfig kernelConfig, Texture2D inputTexture, Texture2D depthBuffer, float2 uv, float2 offset, float x, float center_c, float center_d, inout float c_total, inout float w_total)
+{
+    uint kernelRadius = kernelConfig.kernelRadius;
+
+    float signal = inputTexture.SampleLevel(SAMPLER_LINEAR_CLAMP, uv + offset, 0).r;
+    float depth = depthBuffer.SampleLevel(SAMPLER_LINEAR_CLAMP, uv + offset, 0).r;
+
+    float c = signal;
+    float d = depth;
+
+    const float BlurSigma = float(kernelRadius) * 0.5;
+    const float BlurFalloff = 1.0 / (2.0 * BlurSigma * BlurSigma);
+
+    float g_Sharpness = 40.0;
+    float ddiff = (d - center_d) * g_Sharpness;
+    float w = exp2(-x * x * BlurFalloff - ddiff * ddiff);
+
+    c_total += c * w;
+    w_total += w;
+}
+
+float SSDBilateralFilter(SSDKernelConfig kernelConfig, Texture2D inputTexture, float2 invSize, float2 uv)
+{
+    uint kernelRadius = kernelConfig.kernelRadius;
+    
+    Texture2D depthBuffer = GetDepthBufferSRV();
+
+    float center_c = inputTexture.SampleLevel(SAMPLER_LINEAR_CLAMP, uv, 0).r;
+    float center_d = depthBuffer.SampleLevel(SAMPLER_LINEAR_CLAMP, uv, 0).r;
+    
+    float c_total = center_c;
+    float w_total = 1.0;
+
+    for (float x1 = 1.0; x1 <= kernelRadius; x1++)
+    {
+        float2 offset = invSize * x1;
+        SSDAccumulateSample(
+            kernelConfig,
+            inputTexture,
+            depthBuffer,
+            uv, 
+            offset,
+            x1, 
+            center_c, 
+            center_d, 
+            c_total, 
+            w_total);  
+    }
+    
+    for (float x2 = 1.0; x2 <= kernelRadius; x2++)
+    {
+        float2 offset = -invSize * x2;
+        SSDAccumulateSample(
+            kernelConfig,
+            inputTexture,
+            depthBuffer,
+            uv, 
+            offset,
+            x2, 
+            center_c, 
+            center_d, 
+            c_total, 
+            w_total);  
+    }
+    
+
+    float result = c_total / w_total;
+
+    return result;
+}
+
+[numthreads(8, 8, 1)]
+void SDDSpatialFilteringCS(uint2 DispatchThreadId : SV_DispatchThreadID)
+{
+    Texture2D inputeTexture = GetInputTextureSRV();
+
+    uint width, height;
+    inputeTexture.GetDimensions(width, height);
+	if (DispatchThreadId.x >= width || DispatchThreadId.y >= height) 
+    {
+        return;
+    }
+
+    uint2 coord = DispatchThreadId.xy;
+    float2 uv = (coord + 0.5) / float2(width, height);
+
+    float2 invSize;
+    float horizontal = SHADER_ARGUMENTS_DATA(0);
+    if (horizontal > 0.0)
+    {
+        invSize = float2(1.0 / width, 0.0);
+    }
+    else
+    {
+        invSize = float2(0.0, 1.0 / height);
+    }
+
+    SSDKernelConfig kernelConfig;
+    kernelConfig.kernelRadius = 5;
+
+    float result = SSDBilateralFilter(kernelConfig, inputeTexture, invSize, uv);
+
+    RWTexture2D<float4> outputTexture = GetOutputTextureUAV();
+    outputTexture[coord] = float4(result, 0.0, 0.0, 0.0);
+}

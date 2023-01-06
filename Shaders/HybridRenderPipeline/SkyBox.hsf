@@ -1,0 +1,64 @@
+#include "../ShaderCommon.hsf"
+#include "HybridRenderPipelineCommon.hsf"
+
+#define SKY_BOX_SHADER_PER_FRAME_DATA_SLOT          0
+#define SKY_BOX_SHADER_ENVIROMENT_MAP_SRV_SLOT      1
+
+PerFrameData GetPerFrameData()
+{
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(SKY_BOX_SHADER_PER_FRAME_DATA_SLOT);
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<PerFrameData>(bufferIndex & 0xffff);
+}
+
+TextureCube GetEnvironmentMapSRV()
+{
+    return BindlessTextureCubes[SHADER_ARGUMENTS_INDEX(SKY_BOX_SHADER_ENVIROMENT_MAP_SRV_SLOT)];
+}
+
+struct SkyBoxVSToPS
+{
+    float4 clipPosition : SV_POSITION;
+    float3 uvw : POSITION;
+};
+
+float4x4 ConvertFloat3x3To4x4(float3x3 m)
+{
+    return float4x4(m[0][0], m[0][1], m[0][2], 0,
+                    m[1][0], m[1][1], m[1][2], 0,
+                    m[2][0], m[2][1], m[2][2], 0,
+                    0,       0,       0,       1);
+}
+float3x3 ConvertFloat4x4To3x3(float4x4 m)
+{
+    return float3x3(m[0][0], m[0][1], m[0][2],
+                    m[1][0], m[1][1], m[1][2],
+                    m[2][0], m[2][1], m[2][2]);
+}
+
+void SkyBoxVS(uint vertexIndex : SV_VertexID, out SkyBoxVSToPS output)
+{
+    PerFrameData perFrameData = GetPerFrameData();
+
+	// @see https://www.saschawillems.de/blog/2016/08/13/vulkan-tutorial-on-rendering-a-fullscreen-quad-without-buffers/
+	float2 uv = float2((vertexIndex << 1) & 2, vertexIndex & 2);
+	float4 clipPosition = float4(uv * 2.0 - 1.0, 1.0, 1.0);
+
+	// If A is a rotation matrix, then inverse(A) is equal to transpose(A).
+	output.uvw = mul(mul(clipPosition, perFrameData.invProjectionMatrix), transpose(ConvertFloat3x3To4x4(ConvertFloat4x4To3x3(perFrameData.viewMatrix)))).xyz;
+	
+    output.clipPosition = clipPosition;
+
+    // Let the depth value always be 0.
+    output.clipPosition.z = 0.0;
+}
+
+void SkyBoxPS(SkyBoxVSToPS input, out float4 color : SV_TARGET)
+{
+    TextureCube enviromentMap = GetEnvironmentMapSRV();
+
+    float lod = SHADER_ARGUMENTS_DATA(0);
+
+	color = float4(enviromentMap.Sample(SAMPLER_LINEAR_WARP, input.uvw, 0.0).rgb, 1.0);
+
+    // color = float4(input.clipPosition.xy, 0.0, 1.0);
+}

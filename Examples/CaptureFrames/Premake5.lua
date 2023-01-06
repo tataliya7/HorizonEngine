@@ -29,6 +29,8 @@ project "CaptureFrames"
         "HybridRenderPipeline",
         "AssimpImporter",
         "yaml-cpp",
+        "Daisy",
+        "ExampleBase",
         thirdpartypath("glfw/lib/glfw3.lib"),
         thirdpartypath("assimp/lib/assimp-vc143-mt.lib"),
         thirdpartypath("dxc/lib/dxcompiler.lib"),
@@ -45,6 +47,7 @@ project "CaptureFrames"
     includedirs {
         enginepath(""),
         editorpath(""),
+        examplespath("ExampleBase/Source"),
         thirdpartypath("glm/include"),
         thirdpartypath("glfw/include"),
         thirdpartypath("spdlog/include"),

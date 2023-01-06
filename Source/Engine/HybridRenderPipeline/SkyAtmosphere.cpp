@@ -30,6 +30,38 @@ struct SkyAtmosphereConstants
     uint32 aerialPerspectiveVolumeSize;
 };
 
+void SetupEarthAtmosphere(SkyAtmosphereComponent* component)
+{
+    // Values shown here are the result of integration over wavelength power spectrum integrated with paricular function.
+    // Refer to https://github.com/ebruneton/precomputed_atmospheric_scattering for details.
+
+    // All units in kilometers
+    const float earthRadius = 6360.0f;
+    const float earthAtmosphereHeight = 100.0;   // 100km atmosphere radius, less edge visible and it contain 99.99% of the atmosphere medium https://en.wikipedia.org/wiki/K%C3%A1rm%C3%A1n_line
+    const float earthRayleighScaleHeight = 8.0f;
+    const float earthMieScaleHeight = 1.2f;
+
+    const double maxSunZenithAngle = M_PI * 120.0 / 180.0;
+    // Earth
+    component->groundRadius = earthRadius;
+    component->groundAlbedo = { 0.401978f, 0.401978f, 0.401978f };
+    component->atmosphereHeight = earthAtmosphereHeight;
+    component->multipleScatteringFactor = 1.0;
+    // Raleigh
+    component->rayleighScattering = { 0.005802f, 0.013558f, 0.033100f }; // 1/km
+    component->rayleighScaleHeight = earthRayleighScaleHeight;
+    // Mie
+    component->mieScattering = { 0.003996f, 0.003996f, 0.003996f }; // 1/km
+    component->mieExtinction = { 0.004440f, 0.004440f, 0.004440f }; // 1/km
+    component->mieAnisotropy = 0.8f;
+    component->mieScaleHeight = earthMieScaleHeight;
+    // Absorption
+    component->absorptionDensity[0] = { 25.0f, 0.0f, 0.0f, 1.0f / 15.0f, -2.0f / 3.0f };
+    component->absorptionDensity[1] = { 0.0f, 0.0f, 0.0f, -1.0f / 15.0f, 8.0f / 3.0f };
+    component->absorptionExtinction = { 0.000650f, 0.001881f, 0.000085f }; // 1/km
+    component->cosMaxSunZenithAngle = (float)Math::Cos(maxSunZenithAngle);
+}
+
 static void UpdateSkyAtmosphereConstants(const SkyAtmosphere& skyAtmosphere, const SkyAtmosphereComponent& component)
 {
     const SkyAtmosphereConfig& config = skyAtmosphere.config;

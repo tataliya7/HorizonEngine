@@ -127,12 +127,12 @@ namespace HE
 	{
 		OPTICK_EVENT();
 
+		OnDrawUI();
+
 		if (showOverlay)
 		{
 			DrawOverlay();
 		}
-
-		OnDrawUI();
 	}
 
 	int HorizonExampleBase::Run()

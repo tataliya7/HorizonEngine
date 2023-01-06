@@ -35,7 +35,7 @@ namespace HE
 			UpdateTransform(deltaTime, tranform.position, tranform.rotation);
 		}
 
-	private:
+	protected:
 		
 		void UpdateTransform(float deltaTime, Vector3& outCameraPosition, Vector3& outCameraEuler);
 	};

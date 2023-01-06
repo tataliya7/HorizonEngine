@@ -6,7 +6,7 @@
 
 import HorizonEngine.SceneManagement;
 
-#define HORIZON_EXAMPLE_NAME "Rigid Body"
+#define HORIZON_EXAMPLE_NAME "RigidBody"
 
 namespace HE
 {

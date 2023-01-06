@@ -1,0 +1,64 @@
+Scene: DefaultScene
+Entities:
+  - Entity: MainCamera
+    TransformComponent:
+      Position: [0, 0, 5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SceneHierarchyComponent:
+      Depth: 0
+      Num Children: 0
+      Parent: 4294967295
+      First: 4294967295
+      Next: 4294967295
+      Prev: 4294967295
+    CameraComponent:
+      Near Plane: 0.5
+      Far Plane: 1000
+      Field of View: 60
+      Aspect Ratio: 1.77777779
+      Override Aspect Ratio: false
+  - Entity: DirectionalLight
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SceneHierarchyComponent:
+      Depth: 0
+      Num Children: 0
+      Parent: 4294967295
+      First: 4294967295
+      Next: 4294967295
+      Prev: 4294967295
+    DirectionalLightComponent:
+      Color: [1, 1, 1]
+      Intensity: 1
+  - Entity: SkyLight
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SceneHierarchyComponent:
+      Depth: 0
+      Num Children: 0
+      Parent: 4294967295
+      First: 4294967295
+      Next: 4294967295
+      Prev: 4294967295
+    SkyLightComponent:
+      Cubemap: ../../../Assets/HDRIs/HDR_029_Sky_Cloudy_Ref.hdr
+      Cubemap Resolution: 1024
+  - Entity: Mesh
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SceneHierarchyComponent:
+      Depth: 0
+      Num Children: 0
+      Parent: 4294967295
+      First: 4294967295
+      Next: 4294967295
+      Prev: 4294967295
+    StaticMeshComponent:
+      Mesh Source: ../../../Assets/Models/Sponza/glTF/Sponza.gltf

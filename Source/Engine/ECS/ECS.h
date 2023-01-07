@@ -10,3 +10,4 @@
 #include "ECS/MeshComponent.h"
 #include "ECS/ScriptComponent.h"
 #include "ECS/RigidBodyComponent.h"
+#include "ECS/AudioComponent.h"

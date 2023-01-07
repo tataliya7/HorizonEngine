@@ -11,7 +11,7 @@ project "Audio"
     }
 
     files {
-        "**.h",  
+        "**.h", 
         "**.c", 
         "**.hpp",
         "**.cpp",
@@ -23,7 +23,7 @@ project "Audio"
     includedirs {
         "",
         enginepath(""),
-        thirdpartypath("wwise/include"),
+        thirdpartypath("miniaudio/include"),
     }
 
     filter "system:windows"

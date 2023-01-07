@@ -71,6 +71,8 @@ namespace HE
 			auto& doxColliderComponent = scene->GetEntityManager()->AddComponent<BoxColliderComponent>(box);
 		}
 
+		"D:/Programming/HorizonEngine/Assets/Audio/HORIZON.mp3"
+		
 		// TODO: Remove this
 		scene->renderScene = new RenderScene();
 		scene->physicsScene = new PhysicsScene();

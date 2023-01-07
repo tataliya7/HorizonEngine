@@ -38,6 +38,7 @@ Implemented features:
  - [x] Deferred Render Pipeline
  - [x] Path Tracing
  - [x] Physics Engine Integration (PhysX)
+ - [x] Sound Engine Integration (miniaudio)
 
 Main features to come:
  - [ ] Visibility Buffer (Also Called Deferred Texturing or Deferred Material Shading)
@@ -45,7 +46,6 @@ Main features to come:
  - [ ] Native Graphics API Support (Direct3D 12, Metal 2)
  - [ ] Multi-GPU Rendering
  - [ ] Plugin System (Live-Reloadable Plugins)
- - [ ] Audio System
  - [ ] Machine Learning (TensorRT Integration)
  - [ ] VR/AR Support
  - [ ] Cross-Platform (MacOS and Linux Support)
@@ -113,7 +113,7 @@ See [here]() for more examples.
 * [CUDA](https://developer.nvidia.com/cuda-toolkit)
 * [premake](https://github.com/premake/premake-core)
 * [optick](https://github.com/bombomby/optick)
-* [Wwise](https://www.audiokinetic.com/en/education/samples/sdk/)
+* [miniaudio](https://github.com/mackron/miniaudio)
 
 ## Documentation
 

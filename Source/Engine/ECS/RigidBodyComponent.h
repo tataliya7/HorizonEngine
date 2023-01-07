@@ -14,6 +14,24 @@ namespace HE
 		BoxColliderComponent(const BoxColliderComponent& other) = default;
 	};
 
+	struct SphereColliderComponent
+	{
+		SphereColliderComponent() = default;
+		SphereColliderComponent(const SphereColliderComponent& other) = default;
+	};
+
+	struct CapsuleColliderComponent
+	{
+		CapsuleColliderComponent() = default;
+		CapsuleColliderComponent(const CapsuleColliderComponent& other) = default;
+	};
+
+	struct MeshColliderComponent
+	{
+		MeshColliderComponent() = default;
+		MeshColliderComponent(const MeshColliderComponent& other) = default;
+	};
+
 	struct RigidBodyComponent
 	{
 		enum class Type 

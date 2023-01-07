@@ -17,6 +17,11 @@ namespace HE
 		{
 			return manager->GetComponent<Component>(entity);
 		}
+		template<typename Component>
+		Component* TryGetComponent()
+		{
+			return manager->TryGetComponent<Component>(entity);
+		}
 		EntityManager* manager;
 		EntityHandle entity;
 	};

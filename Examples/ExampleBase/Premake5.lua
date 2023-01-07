@@ -23,6 +23,8 @@ project "ExampleBase"
         "Render",
         "Physics",
         "Input",
+        "Audio",
+        "Script",
         "DxcShaderCompiler",
         "VulkanRenderBackend",
         "HybridRenderPipeline",

@@ -9,6 +9,8 @@
 
 import HorizonEngine.Render.VulkanRenderBackend;
 import HorizonEngine.Input;
+import HorizonEngine.Audio;
+import HorizonEngine.Script;
 
 namespace HE
 {
@@ -64,6 +66,7 @@ namespace HE
 	{
 		GLFWInit();
 		PhysXInit();
+		AudioEngine::Init();
 
 		HorizonExampleWindowCreateInfo windowInfo = {
 			.width = initialWidth,
@@ -93,6 +96,7 @@ namespace HE
 		delete daisyRenderer;
 		delete window;
 
+		AudioEngine::Exit();
 		PhysXExit();
 		GLFWExit();
 		LogSystemExit();

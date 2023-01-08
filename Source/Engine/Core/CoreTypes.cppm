@@ -12,9 +12,6 @@ export namespace HE
 	using uint32 = unsigned int;
 	using uint64 = unsigned long long;
 
-	using float32 = float;
-	using float64 = double;
-
 	using char8 = uint8;
 	using char16 = uint16;
 	using char32 = uint32;

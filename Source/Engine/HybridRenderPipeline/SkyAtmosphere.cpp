@@ -1,5 +1,6 @@
-#include "ECS/ECS.h"
 #include "SkyAtmosphere.h"
+
+import HorizonEngine.Entity;
 
 namespace HE
 {

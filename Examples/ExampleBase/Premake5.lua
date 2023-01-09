@@ -19,11 +19,13 @@ project "ExampleBase"
 
     links {
         "Core",
-        "ECS",
+        "Entity",
         "Render",
         "Physics",
         "Input",
         "Audio",
+        "Daisy",
+        "Scene",
         "Script",
         "DxcShaderCompiler",
         "VulkanRenderBackend",

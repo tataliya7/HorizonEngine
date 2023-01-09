@@ -1,5 +1,8 @@
 module;
 
+#include "Core/CoreDefinitions.h"
+#include "Render/RenderDefinitions.h"
+
 export module HorizonEngine.Render.Enviroment;
 
 import HorizonEngine.Core;

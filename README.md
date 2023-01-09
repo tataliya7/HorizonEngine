@@ -58,7 +58,7 @@ Scene Editor
 FSR
 ![image](/Screenshots/screenshot_fsr.png)
 
-Raytraced Shadow
+Raytraced Shadows
 ![image](/Screenshots/screenshot_raytraced_shadow.jpg)
 
 Sky Atomsphere

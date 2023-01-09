@@ -2,8 +2,6 @@
 
 import HorizonEngine.Core;
 
-#include <windows.h>
-
 struct GLFWwindow;
 
 namespace HE

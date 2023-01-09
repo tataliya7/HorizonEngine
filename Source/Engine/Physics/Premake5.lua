@@ -8,7 +8,7 @@ project "Physics"
         
     links {
         "Core",
-        "ECS",
+        "Entity",
     }
 
     files {
@@ -26,6 +26,7 @@ project "Physics"
         enginepath(""),
         thirdpartypath("physx/include"),
         thirdpartypath("entt/include"),
+        thirdpartypath("glm/include"),
     }
 
     filter "system:windows"

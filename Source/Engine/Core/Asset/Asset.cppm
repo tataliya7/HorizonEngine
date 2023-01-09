@@ -5,6 +5,8 @@ module;
 #include <filesystem>
 #include <unordered_map>
 
+#include "Core/CoreDefinitions.h"
+
 export module HorizonEngine.Core.Asset;
 
 import HorizonEngine.Core.Types;

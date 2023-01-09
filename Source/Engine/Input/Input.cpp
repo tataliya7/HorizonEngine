@@ -4,53 +4,46 @@ module;
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
-__pragma(warning(push, 0))
 module HorizonEngine.Input;
-__pragma(warning(pop))
 
-namespace HE
+namespace HE::Input
 {
-namespace Input
-{
+	GLFWwindow* gCurrentWindow = nullptr;
 
-GLFWwindow* gCurrentWindow = nullptr;
+	void SetCurrentContext(void* window)
+	{
+		gCurrentWindow = (GLFWwindow*)window;
+	}
 
-void SetCurrentContext(void* window)
-{
-	gCurrentWindow = (GLFWwindow*)window;
-}
+	bool GetKeyDown(KeyCode key)
+	{
+		int state = glfwGetKey(gCurrentWindow, (int)key);
+		return state == GLFW_PRESS;
+	}
 
-bool GetKeyDown(KeyCode key)
-{
-	int state = glfwGetKey(gCurrentWindow, (int)key);
-	return state == GLFW_PRESS;
-}
+	bool GetKeyUp(KeyCode key)
+	{
+		int state = glfwGetKey(gCurrentWindow, (int)key);
+		return state == GLFW_RELEASE;
+	}
 
-bool GetKeyUp(KeyCode key)
-{
-	int state = glfwGetKey(gCurrentWindow, (int)key);
-	return state == GLFW_RELEASE;
-}
+	bool GetMouseButtonDown(MouseButtonID button)
+	{
+		int state = glfwGetMouseButton(gCurrentWindow, (int)button);
+		return state == GLFW_PRESS;
+	}
 
-bool GetMouseButtonDown(MouseButtonID button)
-{
-	int state = glfwGetMouseButton(gCurrentWindow, (int)button);
-	return state == GLFW_PRESS;
-}
+	bool GetMouseButtonUp(MouseButtonID button)
+	{
+		int state = glfwGetMouseButton(gCurrentWindow, (int)button);
+		return state == GLFW_RELEASE;
+	}
 
-bool GetMouseButtonUp(MouseButtonID button)
-{
-	int state = glfwGetMouseButton(gCurrentWindow, (int)button);
-	return state == GLFW_RELEASE;
-}
-
-void GetMousePosition(float& x, float& y)
-{
-	double xpos, ypos;
-	glfwGetCursorPos(gCurrentWindow, &xpos, &ypos);
-	x = (float)xpos;
-	y = (float)ypos;
-}
-
-}
+	void GetMousePosition(float& x, float& y)
+	{
+		double xpos, ypos;
+		glfwGetCursorPos(gCurrentWindow, &xpos, &ypos);
+		x = (float)xpos;
+		y = (float)ypos;
+	}
 }

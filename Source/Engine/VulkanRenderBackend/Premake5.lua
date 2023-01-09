@@ -26,6 +26,7 @@ project "VulkanRenderBackend"
         enginepath(""),
         thirdpartypath("vulkan/include"),
         thirdpartypath("vma/include"),
+        thirdpartypath("glm/include"),
     }
 
     filter "system:windows"

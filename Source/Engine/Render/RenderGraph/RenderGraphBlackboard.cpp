@@ -6,6 +6,8 @@ module;
 
 module HorizonEngine.Render.RenderGraph:RenderGraphBlackboard;
 
+import HorizonEngine.Core;
+
 namespace HE
 {
 	std::string RenderGraphBlackboard::GetStructName(const char* structName, const char* filename, uint32 line)

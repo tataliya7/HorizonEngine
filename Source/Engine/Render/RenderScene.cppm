@@ -1,17 +1,20 @@
 module;
 
 #include <vector>
-#include <ECS/ECS.h>
 
 #include <optick.h>
+
+#include "Core/CoreDefinitions.h"
 
 export module HorizonEngine.Render.Scene;
 
 import HorizonEngine.Core;
+import HorizonEngine.Entity;
 import HorizonEngine.Render.Core;
 import HorizonEngine.Render.RenderGraph;
 import HorizonEngine.Render.RenderPipeline;
-import HorizonEngine.SceneManagement;
+
+#define MAX_NUM_SHADOW_MAP_CASCADES 4
 
 export namespace HE
 {
@@ -31,117 +34,146 @@ export namespace HE
 		Matrix4x4 invProjectionMatrix;
 	};
 
-#define MAX_NUM_SHADOW_MAP_CASCADES 4
+	struct ShadowCascades
+	{
+		Matrix4x4 viewProjectionMatrix[MAX_NUM_SHADOW_MAP_CASCADES];
+		float splitDepth[MAX_NUM_SHADOW_MAP_CASCADES];
+	};
 
 	class LightRenderProxy
 	{
 	public:
+
+		static void CalculateShadowCascades(const LightRenderProxy& light, const Camera& camera, ShadowCascades& cascades);
+
 		LightRenderProxy(const DirectionalLightComponent* lightComponent)
-			: component(lightComponent) {}
+			: component(lightComponent)	{}
 
 		const DirectionalLightComponent* component;
 
-		Vector3 direction;
-
-		bool rayTracingShadows = false;
-		uint32 numDynamicShadowCascades = 4;
-		uint32 shadowMapSize = 4096;
-		float cascadeSplitLambda = 0.95f;
-		Matrix4x4 viewProjectionMatrix[MAX_NUM_SHADOW_MAP_CASCADES];
-		float splitDepth[MAX_NUM_SHADOW_MAP_CASCADES];
-
-		void UpdateShadowCascades(const Camera& camera)
+		const Vector3& GetDirection() const
 		{
-			float cascadeSplits[MAX_NUM_SHADOW_MAP_CASCADES];
-
-			float nearClip = camera.zNear;
-			float farClip = camera.zFar;
-
-			//float nearClip = camera.zFar;
-			//float farClip = camera.zNear;
-
-			float clipRange = farClip - nearClip;
-
-			float minZ = nearClip;
-			float maxZ = nearClip + clipRange;
-
-			float range = maxZ - minZ;
-			float ratio = maxZ / minZ;
-
-			// Calculate split depths based on view camera frustum
-			// Based on method presented in https://developer.nvidia.com/gpugems/GPUGems3/gpugems3_ch10.html
-			for (uint32_t i = 0; i < MAX_NUM_SHADOW_MAP_CASCADES; i++)
-			{
-				float p = (i + 1) / static_cast<float>(MAX_NUM_SHADOW_MAP_CASCADES);
-				float log = minZ * std::pow(ratio, p);
-				float uniform = minZ + range * p;
-				float d = cascadeSplitLambda * (log - uniform) + uniform;
-				cascadeSplits[i] = (d - nearClip) / clipRange;
-			}
-
-			// Calculate orthographic projection matrix for each cascade
-			float lastSplitDist = 0.0;
-			for (uint32_t cascadeIndex = 0; cascadeIndex < MAX_NUM_SHADOW_MAP_CASCADES; cascadeIndex++)
-			{
-				float splitDist = cascadeSplits[cascadeIndex];
-
-				glm::vec3 frustumCorners[8] = {
-					glm::vec3(-1.0f,  1.0f,  1.0f),
-					glm::vec3( 1.0f,  1.0f,  1.0f),
-					glm::vec3( 1.0f, -1.0f,  1.0f),
-					glm::vec3(-1.0f, -1.0f,  1.0f),
-					glm::vec3(-1.0f,  1.0f,  0.0f),
-					glm::vec3( 1.0f,  1.0f,  0.0f),
-					glm::vec3( 1.0f, -1.0f,  0.0f),
-					glm::vec3(-1.0f, -1.0f,  0.0f),
-				};
-
-				// Project frustum corners into world space
-				glm::mat4 invCam = camera.invViewMatrix * camera.invProjectionMatrix;
-				for (uint32_t i = 0; i < 8; i++)
-				{
-					glm::vec4 invCorner = invCam * glm::vec4(frustumCorners[i], 1.0f);
-					frustumCorners[i] = invCorner / invCorner.w;
-				}
-
-				for (uint32_t i = 0; i < 4; i++) {
-					glm::vec3 dist = frustumCorners[i + 4] - frustumCorners[i];
-					frustumCorners[i + 4] = frustumCorners[i] + (dist * splitDist);
-					frustumCorners[i] = frustumCorners[i] + (dist * lastSplitDist);
-				}
-
-				// Get frustum center
-				glm::vec3 frustumCenter = glm::vec3(0.0f);
-				for (uint32_t i = 0; i < 8; i++)
-				{
-					frustumCenter += frustumCorners[i];
-				}
-				frustumCenter /= 8.0f;
-
-				float radius = 0.0f;
-				for (uint32_t i = 0; i < 8; i++) 
-				{
-					float distance = glm::length(frustumCorners[i] - frustumCenter);
-					radius = glm::max(radius, distance);
-				}
-				radius = std::ceil(radius * 16.0f) / 16.0f;
-
-				glm::vec3 maxExtents = glm::vec3(radius);
-				glm::vec3 minExtents = -maxExtents;
-
-				glm::vec3 lightDir = direction;
-
-				glm::mat viewMatrix = glm::lookAt(frustumCenter - lightDir * -minExtents.z, frustumCenter, glm::vec3(0.0f, 1.0f, 0.0f));
-				//glm::mat projectionMatrix = glm::ortho(minExtents.x, maxExtents.x, minExtents.y, maxExtents.y, 0.0f, maxExtents.z - minExtents.z);
-				glm::mat projectionMatrix = glm::ortho(minExtents.x, maxExtents.x, minExtents.y, maxExtents.y, maxExtents.z - minExtents.z, 0.0f);
-
-				viewProjectionMatrix[cascadeIndex] = projectionMatrix * viewMatrix;
-				splitDepth[cascadeIndex] = (nearClip + splitDist * clipRange) * -1.0f;
-
-				lastSplitDist = cascadeSplits[cascadeIndex];
-			}
+			return direction;
 		}
+
+		bool UseRayTracingShadows() const
+		{
+			return component->rayTracingShadows;
+		}
+
+		uint32 GetNumDynamicShadowCascades() const
+		{
+			return component->numDynamicShadowCascades;
+		}
+
+		uint32 GetShadowMapSize() const
+		{
+			return component->shadowMapSize;
+		}
+
+		float GetCascadeSplitLambda() const
+		{
+			return component->cascadeSplitLambda;
+		}
+
+	private:
+
+		friend class Scene;
+
+		Vector3 direction;
 	};
+	
+	void LightRenderProxy::CalculateShadowCascades(const LightRenderProxy& lightProxy, const Camera& camera, ShadowCascades& cascades)
+	{
+		float cascadeSplits[MAX_NUM_SHADOW_MAP_CASCADES];
+
+		float nearClip = camera.zNear;
+		float farClip = camera.zFar;
+
+		//float nearClip = camera.zFar;
+		//float farClip = camera.zNear;
+
+		float clipRange = farClip - nearClip;
+
+		float minZ = nearClip;
+		float maxZ = nearClip + clipRange;
+
+		float range = maxZ - minZ;
+		float ratio = maxZ / minZ;
+
+		// Calculate split depths based on view camera frustum
+		// Based on method presented in https://developer.nvidia.com/gpugems/GPUGems3/gpugems3_ch10.html
+		for (uint32_t i = 0; i < MAX_NUM_SHADOW_MAP_CASCADES; i++)
+		{
+			float p = (i + 1) / static_cast<float>(MAX_NUM_SHADOW_MAP_CASCADES);
+			float log = minZ * std::pow(ratio, p);
+			float uniform = minZ + range * p;
+			float d = lightProxy.GetCascadeSplitLambda() * (log - uniform) + uniform;
+			cascadeSplits[i] = (d - nearClip) / clipRange;
+		}
+
+		// Calculate orthographic projection matrix for each cascade
+		float lastSplitDist = 0.0;
+		for (uint32_t cascadeIndex = 0; cascadeIndex < MAX_NUM_SHADOW_MAP_CASCADES; cascadeIndex++)
+		{
+			float splitDist = cascadeSplits[cascadeIndex];
+
+			glm::vec3 frustumCorners[8] = {
+				glm::vec3(-1.0f,  1.0f,  1.0f),
+				glm::vec3(1.0f,  1.0f,  1.0f),
+				glm::vec3(1.0f, -1.0f,  1.0f),
+				glm::vec3(-1.0f, -1.0f,  1.0f),
+				glm::vec3(-1.0f,  1.0f,  0.0f),
+				glm::vec3(1.0f,  1.0f,  0.0f),
+				glm::vec3(1.0f, -1.0f,  0.0f),
+				glm::vec3(-1.0f, -1.0f,  0.0f),
+			};
+
+			// Project frustum corners into world space
+			glm::mat4 invCam = camera.invViewMatrix * camera.invProjectionMatrix;
+			for (uint32_t i = 0; i < 8; i++)
+			{
+				glm::vec4 invCorner = invCam * glm::vec4(frustumCorners[i], 1.0f);
+				frustumCorners[i] = invCorner / invCorner.w;
+			}
+
+			for (uint32_t i = 0; i < 4; i++) {
+				glm::vec3 dist = frustumCorners[i + 4] - frustumCorners[i];
+				frustumCorners[i + 4] = frustumCorners[i] + (dist * splitDist);
+				frustumCorners[i] = frustumCorners[i] + (dist * lastSplitDist);
+			}
+
+			// Get frustum center
+			glm::vec3 frustumCenter = glm::vec3(0.0f);
+			for (uint32_t i = 0; i < 8; i++)
+			{
+				frustumCenter += frustumCorners[i];
+			}
+			frustumCenter /= 8.0f;
+
+			float radius = 0.0f;
+			for (uint32_t i = 0; i < 8; i++)
+			{
+				float distance = glm::length(frustumCorners[i] - frustumCenter);
+				radius = glm::max(radius, distance);
+			}
+			radius = std::ceil(radius * 16.0f) / 16.0f;
+
+			glm::vec3 maxExtents = glm::vec3(radius);
+			glm::vec3 minExtents = -maxExtents;
+
+			glm::vec3 lightDir = lightProxy.GetDirection();
+
+			glm::mat viewMatrix = glm::lookAt(frustumCenter - lightDir * -minExtents.z, frustumCenter, glm::vec3(0.0f, 1.0f, 0.0f));
+			//glm::mat projectionMatrix = glm::ortho(minExtents.x, maxExtents.x, minExtents.y, maxExtents.y, 0.0f, maxExtents.z - minExtents.z);
+			glm::mat projectionMatrix = glm::ortho(minExtents.x, maxExtents.x, minExtents.y, maxExtents.y, maxExtents.z - minExtents.z, 0.0f);
+
+			cascades.viewProjectionMatrix[cascadeIndex] = projectionMatrix * viewMatrix;
+			cascades.splitDepth[cascadeIndex] = (nearClip + splitDist * clipRange) * -1.0f;
+
+			lastSplitDist = cascadeSplits[cascadeIndex];
+		}
+	}
 
 	class SkyLightRenderProxy
 	{
@@ -150,6 +182,30 @@ export namespace HE
 			: component(component) {}
 
 		const SkyLightComponent* component;
+
+		uint32 GetCubemapResolution() const
+		{
+			return component->cubemapResolution;
+		}
+
+		RenderBackendTextureHandle GetEnvironmentMap() const
+		{
+			return environmentMap;
+		}
+
+		RenderBackendTextureHandle GetIrradianceEnvironmentMap() const
+		{
+			return irradianceEnvironmentMap;
+		}
+
+		RenderBackendTextureHandle GetFilteredEnvironmentMap() const
+		{
+			return filteredEnvironmentMap;
+		}
+
+	private:
+
+		friend class RenderScene;
 
 		RenderBackendTextureHandle environmentMap;
 		RenderBackendTextureHandle irradianceEnvironmentMap;
@@ -189,6 +245,8 @@ export namespace HE
 			: component(component) {}
 		const StaticMeshComponent* component;
 
+		Mesh* mesh;
+
 		std::vector<Renderable> renderables;
 
 		Matrix4x4 worldMatrix;
@@ -205,15 +263,25 @@ export namespace HE
 		RenderScene();
 		~RenderScene();
 
-		Scene* scene;
-		
-		// TODO: Remove this
-		void Setup(Scene* scene, DaisyRenderer* renderer);
-		void Setup(Scene* scene, RenderBackend* renderBackend, MemoryArena* arena);
+		void Setup();
 
 		void Update(float deltaTime);
 
 		void UpdateSkyLights();
+
+		const LightRenderProxy& GetMainLight() const
+		{
+			return *mainLight;
+		}
+
+		const SkyLightRenderProxy& GetSkyLight() const
+		{
+			return *skyLight;
+		}
+
+		void SetMainLight(LightRenderProxy* proxy);
+
+		void SetSkyLight(SkyLightRenderProxy* proxy);
 
 		RenderBackend* renderBackend;
 
@@ -236,10 +304,12 @@ export namespace HE
 		RenderBackendRayTracingAccelerationStructureHandle bottomLevelAS;
 		RenderBackendRayTracingAccelerationStructureHandle topLevelAS;
 
-		void SetSkyLight(SkyLightRenderProxy* proxy);
+	private:
+
+		LightRenderProxy* mainLight;
+
 		SkyLightRenderProxy* skyLight;
 
-		LightRenderProxy* simpleDirectionalLight;
 	};
 
 	struct SceneView
@@ -248,6 +318,7 @@ export namespace HE
 		RenderPipeline* renderPipeline;
 		RenderScene* scene;
 		Camera camera;
+		uint32 frameIndex;
 		uint32 targetWidth;
 		uint32 targetHeight;
 		RenderBackendTextureDesc targetDesc;
@@ -269,7 +340,6 @@ export namespace HE
 		RenderPipeline* activePipeline = view->renderPipeline;
 		uint32 deviceMask = ~0u;
 
-		// UpdateCameraMatrices(view->camera, (float)(view->targetWidth / view->targetHeight));
 		{
 			RenderGraph renderGraph(arena);
         

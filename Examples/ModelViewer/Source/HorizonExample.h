@@ -2,10 +2,6 @@
 
 #include <HorizonExampleBase.h>
 
-#include <ECS/ECS.h>
-
-import HorizonEngine.SceneManagement;
-
 #define HORIZON_EXAMPLE_NAME "ModelViewer"
 
 namespace HE

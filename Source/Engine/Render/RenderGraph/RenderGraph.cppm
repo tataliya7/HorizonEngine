@@ -4,12 +4,14 @@ module;
 #include <vector>
 #include <functional>
 
+#include "Core/CoreDefinitions.h"
+#include "Render/RenderDefinitions.h"
+
 export module HorizonEngine.Render.RenderGraph;
 
 export import :RenderGraphHandles;
 export import :RenderGraphNode;
 export import :RenderGraphBlackboard;
-export import "RenderGraphDefinitions.h";
 
 import HorizonEngine.Core;
 import HorizonEngine.Render.Core;

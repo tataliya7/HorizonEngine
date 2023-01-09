@@ -8,9 +8,6 @@ project "AssimpImporter"
         
     links {
         "Core",
-        "Render",
-        "ECS",
-        "SceneManagement",
     }
 
     files {
@@ -27,6 +24,7 @@ project "AssimpImporter"
         enginepath("Core"),
         thirdpartypath("assimp/include"),
         thirdpartypath("spdlog/include"),
+        thirdpartypath("glm/include"),
     }
 
     filter "system:windows"

@@ -2,6 +2,8 @@ module;
 
 #include <unordered_map>
 
+#include "Core/CoreDefinitions.h"
+
 export module HorizonEngine.Render.ShaderSystem;
 
 import HorizonEngine.Core;

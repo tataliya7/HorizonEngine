@@ -1,13 +1,14 @@
 module;
 
-#if HE_PLATFORM_WINDOWS
-
 #define NOMINMAX
 #include <windows.h>
 #include <string>
 
+#include "Core/CoreCommon.h"
+
 module HorizonEngine.Core.Platform.Generic;
 
+import HorizonEngine.Core.Types;
 import HorizonEngine.Core.Logging;
 
 namespace HE
@@ -147,4 +148,3 @@ namespace HE
         }
     }
 }
-#endif

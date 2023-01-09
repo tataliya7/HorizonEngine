@@ -2,6 +2,8 @@ module;
 
 #include <vma/vk_mem_alloc.h>
 
+#include "Core/CoreDefinitions.h"
+
 export module HorizonEngine.Render.VulkanRenderBackend:Utils;
 
 __pragma(warning(push, 0))

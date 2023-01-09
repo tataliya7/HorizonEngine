@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Core/CoreDefinitions.h"
+#include "Render/RenderDefinitions.h"
+
 import HorizonEngine.Core;
 import HorizonEngine.Render;
 

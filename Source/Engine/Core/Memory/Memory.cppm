@@ -4,8 +4,6 @@ module;
 
 export module HorizonEngine.Core.Memory;
 
-export import "MemoryDefinitions.h";
-
 import HorizonEngine.Core.Types;
 
 export namespace HE
@@ -116,6 +114,8 @@ export namespace HE
         uint64 size = 0;
         uint64 used = 0;
     };
+
+    extern LinearArena* GArena;
 
     void* ArenaRealloc(MemoryArena* arena, void* ptr, uint64 oldSize, uint64 newSize, uint64 alignment, const char* file, uint32 line);
 }

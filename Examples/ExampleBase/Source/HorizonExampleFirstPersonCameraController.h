@@ -1,8 +1,9 @@
 #pragma once
 
-#include "ECS/ECS.h"
+#include "Core/CoreDefinitions.h"
 
 import HorizonEngine.Core;
+import HorizonEngine.Entity;
 
 namespace HE
 {

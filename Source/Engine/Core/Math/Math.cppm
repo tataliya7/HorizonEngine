@@ -1,11 +1,10 @@
 module;
 
 #include "CoreCommon.h"
+
 #include <chrono>
 
 export module HorizonEngine.Core.Math;
-
-export import "MathDefinitions.h";
 
 import HorizonEngine.Core.Types;
 
@@ -214,7 +213,7 @@ export namespace HE::Math
         return glm::radians(x);
     }
 
-    FORCEINLINE Vector3 EulerAnglesFromQuat(const Quaternion& quat)
+    FORCEINLINE Vector3 EulerAnglesFromQuaternion(const Quaternion& quat)
     {
         return glm::eulerAngles(quat);
     }
@@ -222,6 +221,11 @@ export namespace HE::Math
     FORCEINLINE Quaternion QuaternionFromAngleAxis(float angle, const Vector3& axis)
     {
         return glm::angleAxis(angle, axis);
+    }
+
+    FORCEINLINE Quaternion ConvertMatrix4x4ToQuaternion(const Matrix4x4& matrix)
+    {
+        return glm::quat_cast(matrix);
     }
 
     FORCEINLINE Matrix4x4 Inverse(const Matrix4x4& matrix)

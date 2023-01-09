@@ -1,17 +1,14 @@
 module;
 
-#include <ECS/ECS.h>
-#include <Daisy/DaisyRenderer.h>
-#include "AssimpImporter/AssimpImporter.h"
-
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
+
+#include "Core/CoreDefinitions.h"
 
 module HorizonEngine.Render.Scene;
 
 import HorizonEngine.Render.Enviroment;
 import HorizonEngine.Render.ShaderSystem;
-import HorizonEngine.Physics;
 
 namespace HE
 {
@@ -27,12 +24,6 @@ namespace HE
 
 	void RenderScene::Update(float deltaTime)
 	{
-		scene->GetEntityManager()->GetView<StaticMeshComponent>().each([&](EntityHandle entity, auto& component)
-		{
-			auto& transformComponent = scene->GetEntityManager()->GetComponent<TransformComponent>(entity);
-			component.proxy->worldMatrix = transformComponent.world;
-		});
-
 		for (auto& mesh : meshes)
 		{
 			for (auto& renderable : mesh->renderables)
@@ -158,75 +149,46 @@ namespace HE
 			dispatchZ);
 	}
 
+	void RenderScene::SetMainLight(LightRenderProxy* proxy)
+	{
+		ASSERT(proxy);
+		mainLight = proxy;
+	}
+
 	void RenderScene::SetSkyLight(SkyLightRenderProxy* proxy)
 	{
 		ASSERT(proxy);
 
-		RenderScene* scene = this;
-		{
-			scene->skyLight = proxy;
-		}
-	}
+		skyLight = proxy;
 
-	void RenderScene::UpdateSkyLights()
-	{
-		//uint32 cubemapSize = skyLightComponent->CubemapResolution;
-		//EquirectangularToCubemap();
-		//ComputeEnviromentCubemaps(commandList, environmentMap, cubemapSize, outIrradianceEnvironmentMap, outFilteredEnvironmentMap);
-	}
-
-	void RenderScene::Setup(Scene* scene, DaisyRenderer* renderer)
-	{
-		Setup(scene, renderer->GetRenderBackend(), renderer->arena);
-	}
-
-	void RenderScene::Setup(Scene* scene, RenderBackend* renderBackend, MemoryArena* arena)
-	{
-		this->renderBackend = renderBackend;
-
+		renderBackend = GRenderBackend;
 		uint32 deviceMask = ~0u;
+		uint32 cubemapSize = skyLight->GetCubemapResolution();
+		RenderBackendTextureHandle equirectangular = LoadTextureFromHDRFile(renderBackend, skyLight->component->cubemap.c_str());
+		RenderBackendTextureDesc cubemapDesc = RenderBackendTextureDesc::CreateCube(cubemapSize, PixelFormat::RGBA16Float, TextureCreateFlags::UnorderedAccess | TextureCreateFlags::ShaderResource, Math::MaxNumMipLevels(cubemapSize));
+		skyLight->environmentMap = RenderBackendCreateTexture(renderBackend, deviceMask, &cubemapDesc, nullptr, "EnvironmentMap");
 
-		this->scene = scene;
+		RenderBackendTextureDesc irradianceEnvironmentMapDesc = RenderBackendTextureDesc::CreateCube(GIrradianceEnviromentMapSize, PixelFormat::RGBA16Float, TextureCreateFlags::UnorderedAccess | TextureCreateFlags::ShaderResource);
+		skyLight->irradianceEnvironmentMap = RenderBackendCreateTexture(renderBackend, deviceMask, &irradianceEnvironmentMapDesc, nullptr, "IrradianceEnvironmentMap");
 
-		scene->GetEntityManager()->GetView<TransformComponent>().each([&](EntityHandle entity, auto& component)
+		skyLight->filteredEnvironmentMap = RenderBackendCreateTexture(renderBackend, deviceMask, &cubemapDesc, nullptr, "FilteredEnvironmentMap");
+
+		RenderCommandList* commandList = new RenderCommandList(GArena);
+
+		EquirectangularToCubemap(*commandList, equirectangular, skyLight->environmentMap, cubemapSize);
+		ComputeEnviromentCubemaps(*commandList, skyLight->environmentMap, cubemapSize, skyLight->irradianceEnvironmentMap, skyLight->filteredEnvironmentMap);
+
+		RenderBackendSubmitRenderCommandLists(renderBackend, &commandList, 1);
+	}
+
+	void RenderScene::Setup()
+	{
+		uint32 deviceMask = ~0u;
+		for (auto& meshProxy : meshes)
 		{
-			component.Update();
-		});
-	
-		scene->GetEntityManager()->GetView<BoxColliderComponent>().each([&](EntityHandle entity, auto& component)
-		{
-			scene->physicsScene->CreateActor(scene->GetEntityManager(), entity);
-		});
-
-		scene->GetEntityManager()->GetView<DirectionalLightComponent>().each([&](EntityHandle entity, auto& component)
-		{
-			component.proxy = new LightRenderProxy(&component);
-			simpleDirectionalLight = component.proxy;
-		});
-
-		scene->GetEntityManager()->GetView<SkyLightComponent>().each([&](EntityHandle entity, auto& component)
-		{
-			component.proxy = new SkyLightRenderProxy(&component);
-			SetSkyLight(component.proxy);
-		});
-
-		auto group = scene->GetEntityManager()->Get()->group<StaticMeshComponent>(entt::get<TransformComponent>);
-		for (auto entity : group)
-		{
-			auto [transformComponent, staticMeshComponent] = group.get<TransformComponent, StaticMeshComponent>(entity);
-
-			AssimpImporter assimpImporter;
-			assimpImporter.ImportAsset(staticMeshComponent.meshSource.c_str());
-
-			Mesh* meshSource = AssetManager::GetAsset<Mesh>(staticMeshComponent.meshSource);
-
-			MeshRenderProxy* proxy = new MeshRenderProxy(&staticMeshComponent);
-			proxy->worldMatrix = transformComponent.world;
-			staticMeshComponent.proxy = proxy;
-			meshes.push_back(proxy);
-
-			if (meshSource)
+			if (meshProxy->mesh)
 			{
+				Mesh* meshSource = meshProxy->mesh;
 				RenderBackendBufferDesc vertexBuffer0Desc = RenderBackendBufferDesc::CreateByteAddress(meshSource->numVertices * sizeof(Vector3));
 				RenderBackendBufferHandle vertexBuffer0 = RenderBackendCreateBuffer(renderBackend, deviceMask, &vertexBuffer0Desc, "VertexPosition");
 
@@ -237,7 +199,7 @@ namespace HE
 
 				RenderBackendBufferDesc vertexBuffer1Desc = RenderBackendBufferDesc::CreateByteAddress(meshSource->numVertices * sizeof(Vector3));
 				RenderBackendBufferHandle vertexBuffer1 = RenderBackendCreateBuffer(renderBackend, deviceMask, &vertexBuffer1Desc, "VertexNormal");
-		
+
 				RenderBackendMapBuffer(renderBackend, vertexBuffer1, &data);
 				memcpy((uint8*)data, meshSource->normals.data(), meshSource->numVertices * sizeof(Vector3));
 				RenderBackendUnmapBuffer(renderBackend, vertexBuffer1);
@@ -282,7 +244,7 @@ namespace HE
 					material.metallic = meshSource->materials[i].metallic;
 					material.roughness = meshSource->materials[i].roughness;
 					material.emission = meshSource->materials[i].emission;
-					
+
 					if (meshSource->materials[i].baseColorMap == "")
 					{
 						material.baseColorMapIndex = 0;
@@ -328,7 +290,7 @@ namespace HE
 				for (const auto& element : meshSource->elements)
 				{
 					uint32 transformIndex = (uint32)worldMatrices.size();
-					worldMatrices.push_back(element.transform * transformComponent.world);
+					worldMatrices.push_back(element.transform * meshProxy->worldMatrix);
 					auto& renderable = renderables.emplace_back();
 					renderable.localMatrix = element.transform;
 					renderable.firstVertex = element.baseVertex;
@@ -340,7 +302,7 @@ namespace HE
 					renderable.materialIndex = baseMaterialIndex + element.materialIndex;
 					renderable.transformIndex = transformIndex;
 
-					proxy->renderables.push_back(renderable);
+					meshProxy->renderables.push_back(renderable);
 				}
 			}
 		}
@@ -375,8 +337,8 @@ namespace HE
 		for (uint32 i = 0; i < (uint32)geometryDescs.size(); i++)
 		{
 			geometryDescs[i] = {
-				.type = RenderBackendGeometryType::Triangles, 
-				.flags = RenderBackendGeometryFlags::Opaque, 
+				.type = RenderBackendGeometryType::Triangles,
+				.flags = RenderBackendGeometryFlags::Opaque,
 				.triangleDesc = {
 					.numIndices = renderables[i].numIndices,
 					.numVertices = renderables[i].numVertices,
@@ -390,7 +352,7 @@ namespace HE
 				}
 			};
 		}
-		
+
 		RenderBackendBottomLevelASDesc bottomLevelASDesc = {
 			.buildFlags = RenderBackendAccelerationStructureBuildFlags::PreferFastTrace,
 			.numGeometries = (uint32)geometryDescs.size(),
@@ -415,22 +377,5 @@ namespace HE
 		};
 		topLevelAS = RenderBackendCreateTopLevelAS(renderBackend, deviceMask, &topLevelASDesc, "TopLevelAS");
 #endif
-
-		uint32 cubemapSize = skyLight->component->cubemapResolution;
-		RenderBackendTextureHandle equirectangular = LoadTextureFromHDRFile(renderBackend, skyLight->component->cubemap.c_str());
-		RenderBackendTextureDesc cubemapDesc = RenderBackendTextureDesc::CreateCube(cubemapSize, PixelFormat::RGBA16Float, TextureCreateFlags::UnorderedAccess | TextureCreateFlags::ShaderResource, Math::MaxNumMipLevels(cubemapSize));
-		skyLight->environmentMap = RenderBackendCreateTexture(renderBackend, deviceMask, &cubemapDesc, nullptr, "EnvironmentMap");
-		
-		RenderBackendTextureDesc irradianceEnvironmentMapDesc = RenderBackendTextureDesc::CreateCube(GIrradianceEnviromentMapSize, PixelFormat::RGBA16Float, TextureCreateFlags::UnorderedAccess | TextureCreateFlags::ShaderResource);
-		skyLight->irradianceEnvironmentMap = RenderBackendCreateTexture(renderBackend, deviceMask, &irradianceEnvironmentMapDesc, nullptr, "IrradianceEnvironmentMap");
-		
-		skyLight->filteredEnvironmentMap = RenderBackendCreateTexture(renderBackend, deviceMask, &cubemapDesc, nullptr, "FilteredEnvironmentMap");
-
-		RenderCommandList* commandList = new RenderCommandList(arena);
-
-		EquirectangularToCubemap(*commandList, equirectangular, skyLight->environmentMap, cubemapSize);
-		ComputeEnviromentCubemaps(*commandList, skyLight->environmentMap, cubemapSize, skyLight->irradianceEnvironmentMap, skyLight->filteredEnvironmentMap);
-
-		RenderBackendSubmitRenderCommandLists(renderBackend, &commandList, 1);
 	}
 }

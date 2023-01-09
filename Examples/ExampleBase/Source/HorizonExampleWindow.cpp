@@ -4,13 +4,15 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
-// #include "Core/Logging/LoggingDefines.h"
+#include <windows.h>
+
+#include "Core/CoreDefinitions.h"
 
 namespace HE
 {
 	static void ErrorCallback(int errorCode, const char* description)
 	{
-		//HE_LOG_ERROR("GLFW error occurs. [error code]: {}, [desctiption]: {}.", errorCode, description);
+		HE_LOG_ERROR("GLFW error occurs. [error code]: {}, [desctiption]: {}.", errorCode, description);
 	}
 
 	bool GLFWInit()
@@ -18,7 +20,7 @@ namespace HE
 		glfwSetErrorCallback(ErrorCallback);
 		if (glfwInit() != GLFW_TRUE)
 		{
-			//HE_LOG_ERROR("Failed to init glfw.");
+			HE_LOG_ERROR("Failed to init glfw.");
 			return false;
 		}
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -35,7 +37,7 @@ namespace HE
 		handle = glfwCreateWindow(info->width, info->height, info->title, nullptr, nullptr);
 		if (!handle)
 		{
-			//HE_LOG_FATAL("Failed to create main window");
+			HE_LOG_FATAL("Failed to create main window");
 			return;
 		}
 

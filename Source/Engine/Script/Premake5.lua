@@ -8,6 +8,7 @@ project "Script"
         
     links {
         "Core",
+        "Entity",
     }
 
     files {

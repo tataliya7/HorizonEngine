@@ -1,7 +1,10 @@
 module;
 
 #include <sstream>
+
 #include <optick.h>
+
+#include "Render/RenderDefinitions.h"
 
 module HorizonEngine.Render.RenderGraph;
 

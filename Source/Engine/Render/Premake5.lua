@@ -8,9 +8,7 @@ project "Render"
         
     links {
         "Core",
-        "ECS",
-        "SceneManagement",
-        "Physics",
+        "Entity",
     }
 
     files {

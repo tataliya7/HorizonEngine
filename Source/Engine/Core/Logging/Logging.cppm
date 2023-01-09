@@ -5,8 +5,6 @@ module;
 
 export module HorizonEngine.Core.Logging;
 
-export import "LoggingDefinitions.h";
-
 std::shared_ptr<spdlog::logger> gLogger = nullptr;
 
 export namespace HE

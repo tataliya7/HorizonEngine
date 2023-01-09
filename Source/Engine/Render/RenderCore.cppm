@@ -2,17 +2,17 @@ module;
 
 #include <vector>
 
+#include "Core/CoreDefinitions.h"
+#include "Render/RenderDefinitions.h"
+
 export module HorizonEngine.Render.Core;
 
-export import "RenderCoreDefinitions.h";
-
-#define HE_MGPU 1
+#define HE_MGPU 0
 
 import HorizonEngine.Core;
 
 export namespace HE
 {
-
 	/** Pixel formats. */
 	enum class PixelFormat : uint32
 	{
@@ -584,7 +584,9 @@ export namespace HE
 		RenderBackendViewport() = default;
 		RenderBackendViewport(float width, float height)
 			: x(0.0f), y(0.0f), width(width), height(height), minDepth(0.0f), maxDepth(1.0f) {}
-		RenderBackendViewport(float x, float y, float width, float height, float minDepth = 0.0f, float maxDepth = 1.0f)
+		RenderBackendViewport(float x, float y, float width, float height)
+			: x(x), y(y), width(width), height(height), minDepth(0.0f), maxDepth(1.0f) {}
+		RenderBackendViewport(float x, float y, float width, float height, float minDepth, float maxDepth)
 			: x(x), y(y), width(width), height(height), minDepth(minDepth), maxDepth(maxDepth) {}
 	};
 
@@ -1709,6 +1711,8 @@ export namespace HE
 	RenderBackendRayTracingAccelerationStructureHandle RenderBackendCreateTopLevelAS(RenderBackend* backend, uint32 deviceMask, const RenderBackendTopLevelASDesc* desc, const char* name);
 	RenderBackendRayTracingPipelineStateHandle RenderBackendCreateRayTracingPipelineState(RenderBackend* backend, uint32 deviceMask, const RenderBackendRayTracingPipelineStateDesc* desc, const char* name);
 	RenderBackendBufferHandle RenderBackendCreateRayTracingShaderBindingTable(RenderBackend* backend, uint32 deviceMask, const RenderBackendRayTracingShaderBindingTableDesc* desc, const char* name);
+
+	extern RenderBackend* GRenderBackend;
 
 	struct RenderCommandContainer
 	{

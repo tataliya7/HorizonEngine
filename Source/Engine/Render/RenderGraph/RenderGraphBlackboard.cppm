@@ -3,6 +3,8 @@ module;
 #include <vector>
 #include <optional>
 
+#include "Core/CoreDefinitions.h"
+
 export module HorizonEngine.Render.RenderGraph:RenderGraphBlackboard;
 
 import HorizonEngine.Core;

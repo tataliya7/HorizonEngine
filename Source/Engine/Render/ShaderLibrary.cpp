@@ -1,4 +1,10 @@
+module;
+
+#include "Core/CoreDefinitions.h"
+
 module HorizonEngine.Render.ShaderSystem;
+
+#define CREATE_SHADER(shader, filename, entry, stage) { RenderBackendShaderDesc shaderDesc = {};LoadShaderSourceFromFile(filename, source); CompileShader(shaderCompiler,source,HE_TEXT(entry),stage,ShaderRepresentation::SPIRV,includeDirs,defines,&shaderDesc.stages[(uint32)stage]); shaderDesc.entryPoints[(uint32)stage] = entry; shader = RenderBackendCreateShader(renderBackend, deviceMask, &shaderDesc, "shader");}
 
 namespace HE
 {
@@ -12,73 +18,21 @@ namespace HE
 		includeDirs.push_back(HE_TEXT("../../../Shaders"));
 
 		uint32 deviceMask = ~0u;
-		{
-			RenderBackendShaderDesc computeShaderDesc;
-			LoadShaderSourceFromFile("../../../Shaders/EquirectangularToCubemap.hsf", source);
-			CompileShader(
-				shaderCompiler,
-				source,
-				HE_TEXT("EquirectangularToCubemapCS"),
-				RenderBackendShaderStage::Compute,
-				ShaderRepresentation::SPIRV,
-				includeDirs,
-				defines,
-				&computeShaderDesc.stages[(uint32)RenderBackendShaderStage::Compute]);
-			computeShaderDesc.entryPoints[(uint32)RenderBackendShaderStage::Compute] = "EquirectangularToCubemapCS";
-			RenderBackendShaderHandle computeShader = RenderBackendCreateShader(renderBackend, deviceMask, &computeShaderDesc, "EquirectangularToCubemapCS");
-			loadedShaders.emplace("EquirectangularToCubemapCS", computeShader);
-		}
+	
+		RenderBackendShaderHandle EquirectangularToCubemapCS;
+		RenderBackendShaderHandle DownsampleCubemapCS;
+		RenderBackendShaderHandle ComputeEnviromentIrradianceCS;
+		RenderBackendShaderHandle FilterEnviromentMapCS;
 
-		{
-			RenderBackendShaderDesc computeShaderDesc;
-			LoadShaderSourceFromFile("../../../Shaders/DownsampleCubemap.hsf", source);
-			CompileShader(
-				shaderCompiler,
-				source,
-				HE_TEXT("DownsampleCubemapCS"),
-				RenderBackendShaderStage::Compute,
-				ShaderRepresentation::SPIRV,
-				includeDirs,
-				defines,
-				&computeShaderDesc.stages[(uint32)RenderBackendShaderStage::Compute]);
-			computeShaderDesc.entryPoints[(uint32)RenderBackendShaderStage::Compute] = "DownsampleCubemapCS";
-			RenderBackendShaderHandle computeShader = RenderBackendCreateShader(renderBackend, deviceMask, &computeShaderDesc, "DownsampleCubemapCS");
-			loadedShaders.emplace("DownsampleCubemapCS", computeShader);
-		}
-
-		{
-			RenderBackendShaderDesc computeShaderDesc;
-			LoadShaderSourceFromFile("../../../Shaders/ComputeEnviromentIrradiance.hsf", source);
-			CompileShader(
-				shaderCompiler,
-				source,
-				HE_TEXT("ComputeEnviromentIrradianceCS"),
-				RenderBackendShaderStage::Compute,
-				ShaderRepresentation::SPIRV,
-				includeDirs,
-				defines,
-				&computeShaderDesc.stages[(uint32)RenderBackendShaderStage::Compute]);
-			computeShaderDesc.entryPoints[(uint32)RenderBackendShaderStage::Compute] = "ComputeEnviromentIrradianceCS";
-			RenderBackendShaderHandle computeShader = RenderBackendCreateShader(renderBackend, deviceMask, &computeShaderDesc, "ComputeEnviromentIrradianceCS");
-			loadedShaders.emplace("ComputeEnviromentIrradianceCS", computeShader);
-		}
-
-		{
-			RenderBackendShaderDesc computeShaderDesc;
-			LoadShaderSourceFromFile("../../../Shaders/FilterEnviromentMap.hsf", source);
-			CompileShader(
-				shaderCompiler,
-				source,
-				HE_TEXT("FilterEnviromentMapCS"),
-				RenderBackendShaderStage::Compute,
-				ShaderRepresentation::SPIRV,
-				includeDirs,
-				defines,
-				&computeShaderDesc.stages[(uint32)RenderBackendShaderStage::Compute]);
-			computeShaderDesc.entryPoints[(uint32)RenderBackendShaderStage::Compute] = "FilterEnviromentMapCS";
-			RenderBackendShaderHandle computeShader = RenderBackendCreateShader(renderBackend, deviceMask, &computeShaderDesc, "FilterEnviromentMapCS");
-			loadedShaders.emplace("FilterEnviromentMapCS", computeShader);
-		}
+		CREATE_SHADER(EquirectangularToCubemapCS, "../../../Shaders/EquirectangularToCubemap.hsf", "EquirectangularToCubemapCS", RenderBackendShaderStage::Compute);
+		CREATE_SHADER(DownsampleCubemapCS, "../../../Shaders/DownsampleCubemap.hsf", "DownsampleCubemapCS", RenderBackendShaderStage::Compute);
+		CREATE_SHADER(ComputeEnviromentIrradianceCS, "../../../Shaders/ComputeEnviromentIrradiance.hsf", "ComputeEnviromentIrradianceCS", RenderBackendShaderStage::Compute);
+		CREATE_SHADER(FilterEnviromentMapCS, "../../../Shaders/FilterEnviromentMap.hsf", "FilterEnviromentMapCS", RenderBackendShaderStage::Compute);
+		
+		loadedShaders.emplace("EquirectangularToCubemapCS", EquirectangularToCubemapCS);
+		loadedShaders.emplace("DownsampleCubemapCS", DownsampleCubemapCS);
+		loadedShaders.emplace("ComputeEnviromentIrradianceCS", ComputeEnviromentIrradianceCS);
+		loadedShaders.emplace("FilterEnviromentMapCS", FilterEnviromentMapCS);
 	}
 
 	bool ShaderLibrary::LoadShader(const char* filename, const wchar* entry)

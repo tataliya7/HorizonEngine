@@ -1,5 +1,6 @@
 export module HorizonEngine.ParticleSystem;
 
+import <queue>;
 import HorizonEngine.Core;
 
 export namespace HE

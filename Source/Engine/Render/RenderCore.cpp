@@ -2,12 +2,14 @@ module;
 
 #include <fstream>
 
-#include <optick.h>
+#include "Core/CoreDefinitions.h"
 
 module HorizonEngine.Render.Core;
 
 namespace HE
 {
+	RenderBackend* GRenderBackend = nullptr;
+
     const PixelFormatDesc GPixelFormatTable[] =
     {
         // format                         name                 type                           bytes  channels  { depth, stencil }   channelBits
@@ -109,8 +111,6 @@ namespace HE
 
     bool RenderBackendPresentSwapChain(RenderBackend* backend, RenderBackendSwapChainHandle swapChain)
     {
-		OPTICK_EVENT();
-
 	    return backend->PresentSwapChain(backend->instance, swapChain);
     }
 
@@ -464,7 +464,7 @@ namespace HE
 		std::ifstream file(filename, std::ios::ate | std::ios::binary);
 		if (!file.is_open())
 		{
-			HE_LOG_ERROR("Failed to open shader source file.");
+			// HE_LOG_ERROR("Failed to open shader source file.");
 			return;
 		}
 		size_t fileSize = (size_t)file.tellg();

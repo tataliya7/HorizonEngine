@@ -9,6 +9,9 @@ module;
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>
 
+#include "Core/CoreDefinitions.h"
+#include "Render/RenderDefinitions.h"
+
 module HorizonEngine.Render.VulkanRenderBackend;
 
 __pragma(warning(push, 0))
@@ -565,6 +568,7 @@ public:
 	}
 	inline uint32 GetRenderBackendHandleRepresentation(uint32 handle)
 	{
+		ASSERT(handleRepresentations.find(handle) != handleRepresentations.end());
 		return handleRepresentations[handle];
 	}
 	inline bool TryGetRenderBackendHandleRepresentation(uint32 handle, uint32* outValue)
@@ -4037,17 +4041,17 @@ bool VulkanRenderCommandListContext::PrepareForDraw(RenderBackendShaderHandle sh
 	VulkanPushConstants pushConstants = {};
 	for (uint32 i = 0; i < 16; i++)
 	{
-		if (shaderArguments.slots[i].type == 1)
+		if (shaderArguments.slots[i].type == 1 && shaderArguments.slots[i].srvSlot.srv.texture)
 		{
 			VulkanTexture* texture = device->GetTexture(shaderArguments.slots[i].srvSlot.srv.texture);
 			pushConstants.indices[i] = texture->srvIndex;
 		}
-		else if (shaderArguments.slots[i].type == 2)
+		else if (shaderArguments.slots[i].type == 2 && shaderArguments.slots[i].uavSlot.uav.texture)
 		{
 			VulkanTexture* texture = device->GetTexture(shaderArguments.slots[i].uavSlot.uav.texture);
 			pushConstants.indices[i] = texture->uavs[shaderArguments.slots[i].uavSlot.uav.mipLevel].uavIndex;
 		}
-		else if (shaderArguments.slots[i].type == 3)
+		else if (shaderArguments.slots[i].type == 3 && shaderArguments.slots[i].bufferSlot.handle)
 		{
 			VulkanBuffer* buffer = device->GetBuffer(shaderArguments.slots[i].bufferSlot.handle);
 			pushConstants.indices[i] = ((buffer->uavIndex & 0xffff) << 16 ) | (shaderArguments.slots[i].bufferSlot.offset & 0xffff);
@@ -4337,18 +4341,18 @@ static void Tick(void* instance)
 static RenderBackendSwapChainHandle CreateSwapChain(void* instance, uint32 deviceMask, uint64 windowHandle)
 {
 	VulkanRenderBackend* backend = (VulkanRenderBackend*)instance; 
-	RenderBackendSwapChainHandle handle = backend->handleManager.Allocate<RenderBackendSwapChainHandle>(deviceMask);
 	for (uint32 deviceIndex = 0; deviceIndex < backend->numDevices; deviceIndex++)
 	{
 		VulkanDevice& device = backend->devices[deviceIndex];
 		if (device.GetDeviceMask() & deviceMask)
 		{
 			uint32 index = device.CreateSwapChain(windowHandle);
+			RenderBackendSwapChainHandle handle = backend->handleManager.Allocate<RenderBackendSwapChainHandle>(deviceMask);
 			device.SetRenderBackendHandleRepresentation(handle.GetIndex(), index);
-			break;
+			return handle;
 		}
 	}
-	return handle;
+	return RenderBackendSwapChainHandle::NullHandle;
 }
 
 static void DestroySwapChain(void* instance, RenderBackendSwapChainHandle handle)
@@ -4837,9 +4841,9 @@ static void SubmitRenderCommandLists(void* instance, RenderCommandList** command
 
 		vkEndCommandBuffer(primaryCommandBuffer->handle);
 
-		VulkanSwapchain* swapchain = &device.swapchains[0];
-		if (true)
+		if (!device.swapchains.empty())
 		{
+			VulkanSwapchain* swapchain = &device.swapchains[0];
 			waitSemaphores.push_back(swapchain->imageAcquiredSemaphores[swapchain->semaphoreIndex]);
 			waitDstStageMasks.push_back(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
 			submitContext.completeSemaphore = primaryCommandBuffer->semaphore;

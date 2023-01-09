@@ -1,13 +1,19 @@
 #pragma once
 
+#include "Core/CoreDefinitions.h"
 #include "HorizonExampleWindow.h"
 
 #include <string>
 #include <optick.h>
 
 import HorizonEngine.Core;
-import HorizonEngine.Render;
+import HorizonEngine.Entity;
 import HorizonEngine.Physics;
+import HorizonEngine.Render;
+import HorizonEngine.Audio;
+import HorizonEngine.Scene;
+import HorizonEngine.Daisy;
+import HorizonEngine.Render.VulkanRenderBackend;
 
 namespace HE
 {
@@ -27,12 +33,16 @@ namespace HE
 		HorizonExampleBase();
 		virtual ~HorizonExampleBase();
 
+		HorizonExampleBase(HorizonExampleBase&) = delete;
 		HorizonExampleBase(const HorizonExampleBase&) = delete;
+		HorizonExampleBase& operator=(HorizonExampleBase&) = delete;
 		HorizonExampleBase& operator=(const HorizonExampleBase&) = delete;
 
 		bool Init();
 		void Exit();
 		int Run();
+
+		void Tick();
 
 		virtual void Setup() = 0;
 		virtual void Clear() = 0;
@@ -40,10 +50,6 @@ namespace HE
 		virtual void OnUpdate(float deltaTime) = 0;
 		virtual void OnRender() = 0;
 		virtual void OnDrawUI() = 0;
-
-		void Update();
-		void Render();
-		void DrawUI();
 
 		float CalculateDeltaTime();
 

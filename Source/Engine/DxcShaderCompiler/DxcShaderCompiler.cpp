@@ -6,6 +6,8 @@
 #include <dxc/dxcapi.h>
 #include <dxc/d3d12shader.h>
 
+#include "Core/CoreDefinitions.h"
+
 __pragma(warning(push, 0))
 import HorizonEngine.Core;
 import HorizonEngine.Render.Core;

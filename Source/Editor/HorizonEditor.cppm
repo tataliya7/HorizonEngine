@@ -15,8 +15,53 @@ export namespace HE
 		HorizonEditor();
 		virtual ~HorizonEditor();
 
+		HorizonEditor(HorizonEditor&) = delete;
 		HorizonEditor(const HorizonEditor&) = delete;
+		HorizonEditor& operator=(HorizonEditor&) = delete;
 		HorizonEditor& operator=(const HorizonEditor&) = delete;
+
+		void Tick()
+		{
+			UpdateFPS();
+			switch (m_SceneState)
+			{
+			case SceneViewportState::Edit:
+			{
+				m_EditorCamera.SetActive(m_AllowViewportCameraEvents);
+				m_EditorCamera.OnUpdate(ts);
+				m_EditorScene->OnRenderEditor(m_ViewportRenderer, ts, m_EditorCamera);
+				
+				OnRender2D();
+
+				if (const auto& project = Project::GetActive(); project && project->GetConfig().EnableAutoSave)
+				{
+					m_TimeSinceLastSave += ts;
+					if (m_TimeSinceLastSave > project->GetConfig().AutoSaveIntervalSeconds)
+					{
+						SaveSceneAuto();
+					}
+				}
+				break;
+			}
+			case SceneViewportState::Play:
+			{
+				m_RuntimeScene->OnUpdate(ts);
+				m_RuntimeScene->OnRenderRuntime(m_ViewportRenderer, ts);
+
+				for (auto& fn : m_PostSceneUpdateQueue)
+					fn();
+				m_PostSceneUpdateQueue.clear();
+				break;
+			}
+			case SceneViewportState::Pause:
+			{
+				editorViewportCamera;
+				m_EditorCamera.OnUpdate(ts);
+				m_RuntimeScene->OnRenderRuntime(m_ViewportRenderer, ts);
+				break;
+			}
+			}
+		}
 
 	private:
 

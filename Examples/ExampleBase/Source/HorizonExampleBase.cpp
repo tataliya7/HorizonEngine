@@ -2,7 +2,6 @@
 
 #include "HorizonExampleBase.h"
 #include "HorizonExampleWindow.h"
-#include "Daisy/DaisyRenderer.h"
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
@@ -11,6 +10,9 @@ import HorizonEngine.Render.VulkanRenderBackend;
 import HorizonEngine.Input;
 import HorizonEngine.Audio;
 import HorizonEngine.Script;
+
+#define HE_JOB_SYSTEM_NUM_FIBIERS 128
+#define HE_JOB_SYSTEM_FIBER_STACK_SIZE (HE_JOB_SYSTEM_NUM_FIBIERS * 1024)
 
 namespace HE
 {
@@ -64,8 +66,21 @@ namespace HE
 
 	bool HorizonExampleBase::Init()
 	{
+		LogSystemInit();
+		JobSystemInit(HE::GetNumberOfProcessors(), HE_JOB_SYSTEM_NUM_FIBIERS, HE_JOB_SYSTEM_FIBER_STACK_SIZE);
+
 		GLFWInit();
 		PhysXInit();
+
+		//int flags = VULKAN_RENDER_BACKEND_CREATE_FLAGS_SURFACE;
+		int flags = VULKAN_RENDER_BACKEND_CREATE_FLAGS_VALIDATION_LAYERS | VULKAN_RENDER_BACKEND_CREATE_FLAGS_SURFACE;
+
+		GRenderBackend = VulkanRenderBackendCreateBackend(flags);
+
+		uint32 primaryDeviceMask = 0;
+		uint32 physicalDeviceID = 0;
+		RenderBackendCreateRenderDevices(GRenderBackend, &physicalDeviceID, 1, &primaryDeviceMask);
+
 		AudioEngine::Init();
 
 		HorizonExampleWindowCreateInfo windowInfo = {
@@ -80,6 +95,7 @@ namespace HE
 
 		daisyRenderer = new DaisyRenderer(window->GetGLFWHandle());
 		renderBackend = daisyRenderer->GetRenderBackend();
+
 		swapChain = RenderBackendCreateSwapChain(renderBackend, daisyRenderer->GetPrimaryDeviceMask(), (uint64)window->GetNativeHandle());
 		swapChainWidth = window->GetWidth();
 		swapChainHeight = window->GetHeight();
@@ -97,8 +113,10 @@ namespace HE
 		delete window;
 
 		AudioEngine::Exit();
+		VulkanRenderBackendDestroyBackend(GRenderBackend);
 		PhysXExit();
 		GLFWExit();
+		JobSystemExit();
 		LogSystemExit();
 	}
 
@@ -112,24 +130,15 @@ namespace HE
 		return deltaTime;
 	}
 
-	void HorizonExampleBase::Update()
+	void HorizonExampleBase::Tick()
 	{
 		OPTICK_EVENT();
 		
 		float deltaTime = CalculateDeltaTime();
+
 		OnUpdate(deltaTime);
-	}
 
-	void HorizonExampleBase::Render()
-	{
-		OPTICK_EVENT();
-
-		OnRender();
-	}
-
-	void HorizonExampleBase::DrawUI()
-	{
-		OPTICK_EVENT();
+		daisyRenderer->BeginFrame();
 
 		OnDrawUI();
 
@@ -137,6 +146,10 @@ namespace HE
 		{
 			DrawOverlay();
 		}
+
+		OnRender();
+
+		daisyRenderer->EndFrame();
 	}
 
 	int HorizonExampleBase::Run()
@@ -168,15 +181,7 @@ namespace HE
 				swapChainHeight = height;
 			}
 
-			Update();
-
-			daisyRenderer->BeginFrame();
-
-			DrawUI();
-
-			Render();
-
-			daisyRenderer->EndFrame();
+			Tick();
 
 			RenderBackendPresentSwapChain(renderBackend, swapChain);
 

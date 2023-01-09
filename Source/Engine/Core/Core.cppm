@@ -1,6 +1,6 @@
 export module HorizonEngine.Core;
 
-export import "CoreDefinitions.h";
+// export import "CoreDefinitions.h";
 export import HorizonEngine.Core.Types;
 export import HorizonEngine.Core.Math;
 export import HorizonEngine.Core.Memory;

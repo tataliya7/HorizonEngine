@@ -1,3 +1,7 @@
+module;
+
+#include "Core/CoreDefinitions.h"
+
 export module HorizonEngine.Render.RenderGraph:RenderGraphHandles;
 
 import HorizonEngine.Core;

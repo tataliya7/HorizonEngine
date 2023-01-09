@@ -249,7 +249,7 @@ namespace HE
 		if (ImGui::Begin("Scene Hierarchy", &showSceneHierarchyWindow))
 		{
 			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_DefaultOpen;
-			if (ImGui::TreeNodeEx((void*)(uint64)564788, flags, SceneManager::GetActiveScene()->name.c_str()))
+			if (ImGui::TreeNodeEx((void*)(uint64)564788, flags, SceneManager::GetActiveScene()->GetName().c_str()))
 			{
 				auto entityManager = SceneManager::GetActiveScene()->GetEntityManager();
 				entityManager->Get()->each([&](auto entity)
@@ -272,7 +272,7 @@ namespace HE
 			{
 				if (ImGui::MenuItem("Create Empty Entity"))
 				{
-					auto newEntity = SceneManager::GetActiveScene()->GetEntityManager()->CreateEntity("Empty Entity");
+					auto newEntity = SceneManager::GetActiveScene()->CreateEntity("Empty Entity");
 					SceneManager::GetActiveScene()->GetEntityManager()->AddComponent<TransformComponent>(newEntity);
 					SceneManager::GetActiveScene()->GetEntityManager()->AddComponent<SceneHierarchyComponent>(newEntity);
 				}

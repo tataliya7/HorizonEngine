@@ -1,10 +1,6 @@
 #include "HorizonExample.h"
 #include "HorizonExampleFirstPersonCameraController.h"
 #include "CameraAnimation.h"
-#include "Daisy/DaisyRenderer.h"
-
-import HorizonEngine.Render.VulkanRenderBackend;
-import HorizonEngine.Input;
 
 namespace HE
 {
@@ -89,63 +85,66 @@ namespace HE
 
 	void HorizonExample::Setup()
 	{
-		// Create default scene
-		scene = SceneManager::CreateScene("DefaultScene");
+		// Create scene
+		scene = SceneManager::CreateScene("ExampleScene");
 		SceneManager::SetActiveScene(scene);
 
+		scene->SetShouldSimulate(true);
+		scene->SetShouldUpdateScripts(true);
+
 		// Create main camera
-		mainCamera = scene->GetEntityManager()->CreateEntity("MainCamera");
+		mainCamera = scene->CreateEntity("MainCamera");
 		{
 			// When an entity is added to the scene, TransformComponent and SceneHierarchyComponent are automatically created
 			auto& transformComponent = scene->GetEntityManager()->GetComponent<TransformComponent>(mainCamera);
 			transformComponent.position = Vector3(0.0f, 0.0f, 5.0f);
 			transformComponent.rotation = Vector3(0.0f, 0.0f, 0.0f);
 
-			auto& cameraComponent = scene->GetEntityManager()->AddComponent<CameraComponent>(mainCamera);
-			cameraComponent.type = CameraType::Perpective;
+			CameraComponent cameraComponent;
+			cameraComponent.type = CameraComponent::Type::Perpective;
 			cameraComponent.nearPlane = 0.5f;
 			cameraComponent.farPlane = 1000.0f;
 			cameraComponent.fieldOfView = 60.0f;
 			cameraComponent.aspectRatio = 16.0f / 9.0f;
 			cameraComponent.overrideAspectRatio = false;
+			scene->GetEntityManager()->AddComponent<CameraComponent>(mainCamera, cameraComponent);
 
 			// Attach camera controller to main camera
-			scene->GetEntityManager()->AddComponent<ScriptComponent>(mainCamera).Bind<CameraController>();
+			scene->GetEntityManager()->AddComponent<ScriptComponent>(mainCamera).Bind<HorizonExampleFirstPersonCameraController>();
 		}
 
-		// Create directional light
-		EntityHandle directionalLight = scene->GetEntityManager()->CreateEntity("DirectionalLight");
+		// Create main light
+		EntityHandle directionalLight = scene->CreateEntity("DirectionalLight");
 		{
-			auto& directionalLightComponent = scene->GetEntityManager()->AddComponent<DirectionalLightComponent>(directionalLight);
+			DirectionalLightComponent directionalLightComponent;
 			directionalLightComponent.color = Vector4(1.0f);
 			directionalLightComponent.intensity = 1.0f;
+			scene->GetEntityManager()->AddComponent<DirectionalLightComponent>(directionalLight, directionalLightComponent);
 		}
 
 		// Create sky light
-		EntityHandle skyLight = scene->GetEntityManager()->CreateEntity("SkyLight");
+		EntityHandle skyLight = scene->CreateEntity("SkyLight");
 		{
-			auto& skyLightComponent = scene->GetEntityManager()->AddComponent<SkyLightComponent>(skyLight);
+			SkyLightComponent skyLightComponent;
 			skyLightComponent.cubemapResolution = 1024;
 			skyLightComponent.SetCubemap("../../../Assets/HDRIs/HDR_029_Sky_Cloudy_Ref.hdr");
+			scene->GetEntityManager()->AddComponent<SkyLightComponent>(skyLight, skyLightComponent);
 		}
 
 		// Create model
-		EntityHandle model = scene->GetEntityManager()->CreateEntity("Model");
+		EntityHandle model = scene->CreateEntity("Model");
 		{
-			auto& staticMeshComponent = scene->GetEntityManager()->AddComponent<StaticMeshComponent>(model);
+			StaticMeshComponent staticMeshComponent;
 			staticMeshComponent.meshSource = "../../../Assets/Models/Sponza/glTF/Sponza.gltf";
 			//staticMeshComponent.meshSource = "../../../Assets/Models/EnvironmentTest/glTF-IBL/EnvironmentTest.gltf";
 			//staticMeshComponent.meshSource = "../../../Assets/Models/SciFiHelmet/glTF/SciFiHelmet.gltf";
 			//staticMeshComponent.meshSource = "../../../Assets/Models/DamagedHelmet/glTF/DamagedHelmet.gltf";
 			//staticMeshComponent.meshSource = "../../../Assets/Models/SunTemple_v4/SunTemple.gltf";
+			scene->GetEntityManager()->AddComponent<StaticMeshComponent>(model, staticMeshComponent);
 		}
 
-		selectedEntity = model;
-
 		// TODO: Remove this
-		scene->renderScene = new RenderScene();
-		scene->physicsScene = new PhysicsScene();
-		scene->renderScene->Setup(scene, daisyRenderer);
+		scene->GetRenderScene()->Setup();
 
 		// Create scene view
 		view = new SceneView();
@@ -164,9 +163,7 @@ namespace HE
 	{
 		OPTICK_EVENT();
 
-		scene->physicsScene->Simulate(deltaTime);
 		scene->Update(deltaTime);
-		scene->renderScene->Update(deltaTime);
 	}
 
 	void HorizonExample::OnRender()
@@ -175,7 +172,7 @@ namespace HE
 
 		auto& cameraComponent = scene->GetEntityManager()->GetComponent<CameraComponent>(mainCamera);
 		auto& transformComponent = scene->GetEntityManager()->GetComponent<TransformComponent>(mainCamera);
-		view->scene = scene->renderScene;
+		view->scene = scene->GetRenderScene();
 		view->target = RenderBackendGetActiveSwapChainBuffer(renderBackend, swapChain);
 		view->targetDesc = RenderBackendTextureDesc::Create2D(swapChainWidth, swapChainHeight, PixelFormat::BGRA8Unorm, TextureCreateFlags::Present);
 		view->targetWidth = swapChainWidth;
@@ -183,6 +180,7 @@ namespace HE
 		view->camera.fieldOfView = cameraComponent.fieldOfView;
 		view->camera.zNear = cameraComponent.nearPlane;
 		view->camera.zFar = cameraComponent.farPlane;
+		view->frameIndex = (uint32)GetFrameCounter();
 		if (cameraComponent.overrideAspectRatio)
 		{
 			view->camera.aspectRatio = cameraComponent.aspectRatio;

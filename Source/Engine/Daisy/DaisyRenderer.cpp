@@ -1,6 +1,9 @@
-#include "DaisyRenderer.h"
+module;
+
 #include "DxcShaderCompiler/DxcShaderCompiler.h"
 #include "HybridRenderPipeline/HybridRenderPipeline.h"
+
+module HorizonEngine.Daisy;
 
 import HorizonEngine.Render.VulkanRenderBackend;
 
@@ -8,17 +11,11 @@ namespace HE
 {
 	DaisyRenderer::DaisyRenderer(void* window)
 	{
-		arena = new LinearArena(nullptr, 1048576);
+		arena = GArena;
 
 		shaderCompiler = CreateDxcShaderCompiler();
 
-		//int flags = VULKAN_RENDER_BACKEND_CREATE_FLAGS_SURFACE;
-		int flags = VULKAN_RENDER_BACKEND_CREATE_FLAGS_VALIDATION_LAYERS | VULKAN_RENDER_BACKEND_CREATE_FLAGS_SURFACE;
-
-		renderBackend = VulkanRenderBackendCreateBackend(flags);
-
-		uint32 physicalDeviceID = 0;
-		RenderBackendCreateRenderDevices(renderBackend, &physicalDeviceID, 1, &primaryDeviceMask);
+		renderBackend = GRenderBackend;
 
 		uiRenderer = new UIRenderer(window, renderBackend, shaderCompiler);
 		uiRenderer->Init();
@@ -41,7 +38,6 @@ namespace HE
 	DaisyRenderer::~DaisyRenderer()
 	{
 		delete renderPipeline;
-		VulkanRenderBackendDestroyBackend(renderBackend);
 		DestroyDxcShaderCompiler(shaderCompiler);
 		uiRenderer->Shutdown();
 		delete uiRenderer;

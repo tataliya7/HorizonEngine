@@ -3,6 +3,8 @@ module;
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
+#include <string>
+
 export module HorizonEngine.Audio;
 
 import HorizonEngine.Core;
@@ -19,8 +21,9 @@ export namespace HE
             if (result != MA_SUCCESS)
             {
                 printf("Failed to initialize audio engine.");
-                return -1;
+                return false;
             }
+            return true;
         }
 
         void Exit()

@@ -1,11 +1,10 @@
 #include "SceneHierarchyWindow.h"
 
-#include "ECS/ECS.h"
-
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
 
-import HorizonEngine.SceneManagement;
+import HorizonEngine.Scene;
+import HorizonEngine.Entity;
 
 namespace HE
 {

@@ -1,8 +1,9 @@
 #include "PostProcessingCommon.h"
-#include "ECS/ECS.h"
 #include "HybridRenderPipeline.h"
 
 #include <optick.h>
+
+import HorizonEngine.Entity;
 
 namespace HE
 {
@@ -348,8 +349,8 @@ void HybridRenderPipeline::RenderScreenSpaceShadows(
 	RenderBackendBufferHandle parametersBuffer,
 	RenderGraphTextureHandle& shadowMask)
 {
-	uint32 numDynamicShadowCascades = lightProxy.numDynamicShadowCascades;
-	uint32 shadowMapSize = lightProxy.shadowMapSize;
+	uint32 numDynamicShadowCascades = lightProxy.GetNumDynamicShadowCascades();
+	uint32 shadowMapSize = lightProxy.GetShadowMapSize();
 
 	RenderGraphTextureDesc shadowMapDesc = RenderGraphTextureDesc::Create2DArray(
 		shadowMapSize,
@@ -361,11 +362,13 @@ void HybridRenderPipeline::RenderScreenSpaceShadows(
 
 	auto shadowMap = renderGraph.CreateTexture(shadowMapDesc, "ShadowMap");
 
+	ShadowCascades cascades;
+	LightRenderProxy::CalculateShadowCascades(lightProxy, view.camera, cascades);
 	ShadowMapShaderParameters parameters = {};
 	for (uint32 cascadeIndex = 0; cascadeIndex < numDynamicShadowCascades; cascadeIndex++)
 	{
-		parameters.viewProjectionMatrix[cascadeIndex] = lightProxy.viewProjectionMatrix[cascadeIndex];
-		parameters.splitDepth[cascadeIndex] = lightProxy.splitDepth[cascadeIndex];
+		parameters.viewProjectionMatrix[cascadeIndex] = cascades.viewProjectionMatrix[cascadeIndex];
+		parameters.splitDepth[cascadeIndex] = cascades.splitDepth[cascadeIndex];
 		parameters.shadowMapInvSize = 1.0f / shadowMapSize;
 	}
 
@@ -749,9 +752,8 @@ void HybridRenderPipeline::SetupRenderGraph(SceneView* view, RenderGraph* render
 	auto& ouptutTextureData = blackboard.CreateSingleton<RenderGraphOutputTexture>();
 
 	auto prevViewProjectionMatrix = perFrameData.data.viewProjectionMatrix;
-	static uint32 frameIndex = 0;
 	perFrameData.data = {
-		.frameIndex = frameIndex,
+		.frameIndex = view->frameIndex,
 		.gamma = 2.2,
 		.exposure = 1.4,
 		.sunDirection = { 0.00, 0.90045, 0.43497 },
@@ -773,19 +775,9 @@ void HybridRenderPipeline::SetupRenderGraph(SceneView* view, RenderGraph* render
 		.targetResolutionWidth = view->targetWidth,
 		.targetResolutionHeight = view->targetHeight,
 	};
-	frameIndex++;
-	view->scene->scene->frame = frameIndex;
-	{
-		auto entities = view->scene->scene->GetEntityManager()->GetView<DirectionalLightComponent>();
-		for (auto entity : entities)
-		{
-			auto& light = view->scene->scene->GetEntityManager()->GetComponent<DirectionalLightComponent>(entity);
-			auto& transform = view->scene->scene->GetEntityManager()->GetComponent<TransformComponent>(entity);
-			light.proxy->direction = Math::Normalize(Vector3(Quaternion(Math::DegreesToRadians(transform.rotation)) * Vector4(0.0, 0.0, -1.0, 0.0)));
-			perFrameData.data.sunDirection = light.proxy->direction;
-			break;
-		}
-	}
+
+	const LightRenderProxy& mainLight = view->scene->GetMainLight();
+	perFrameData.data.sunDirection = mainLight.GetDirection();
 
 	perFrameData.buffer = perFrameDataBuffer;
 
@@ -1018,8 +1010,6 @@ void HybridRenderPipeline::SetupRenderGraph(SceneView* view, RenderGraph* render
 		};
 	});
 
-	LightRenderProxy* lightProxy = view->scene->simpleDirectionalLight;
-
 	RenderGraphTextureDesc shadowMaskDesc = RenderGraphTextureDesc::Create2D(
 		perFrameData.data.renderResolutionWidth,
 		perFrameData.data.renderResolutionHeight,
@@ -1027,15 +1017,13 @@ void HybridRenderPipeline::SetupRenderGraph(SceneView* view, RenderGraph* render
 		TextureCreateFlags::ShaderResource | TextureCreateFlags::UnorderedAccess);
 	auto shadowMask = renderGraph->CreateTexture(shadowMaskDesc, "ShadowMask");
 
-	if (lightProxy->rayTracingShadows)
+	if (mainLight.UseRayTracingShadows())
 	{
-		RenderRayTracingShadows(*renderGraph, blackboard, *view, *lightProxy, shadowMapParameters, shadowMask);
+		RenderRayTracingShadows(*renderGraph, blackboard, *view, mainLight, shadowMapParameters, shadowMask);
 	}
 	else // Cascaded Shadow Mapping
 	{
-		lightProxy->UpdateShadowCascades(view->camera);
-
-		RenderScreenSpaceShadows(*renderGraph, blackboard, *view, *lightProxy, shadowMapParameters, shadowMask);
+		RenderScreenSpaceShadows(*renderGraph, blackboard, *view, mainLight, shadowMapParameters, shadowMask);
 
 		if (true)
 		{
@@ -1046,7 +1034,6 @@ void HybridRenderPipeline::SetupRenderGraph(SceneView* view, RenderGraph* render
 			// DenoiseShadowMaskSVGF();
 		}
 	}
-	
 	
 	// GTAO
 	// AddGTAOPasses();
@@ -1131,8 +1118,8 @@ void HybridRenderPipeline::SetupRenderGraph(SceneView* view, RenderGraph* render
 #endif
 			shaderArguments.BindTextureUAV(7, RenderBackendTextureUAVDesc::Create(registry.GetRenderBackendTexture(sceneColor), 0));
 			shaderArguments.BindTextureSRV(8, RenderBackendTextureSRVDesc::Create(brdfLut));
-			shaderArguments.BindTextureSRV(9, RenderBackendTextureSRVDesc::Create(view->scene->skyLight->irradianceEnvironmentMap));
-			shaderArguments.BindTextureSRV(10, RenderBackendTextureSRVDesc::Create(view->scene->skyLight->filteredEnvironmentMap));
+			shaderArguments.BindTextureSRV(9, RenderBackendTextureSRVDesc::Create(view->scene->GetSkyLight().GetIrradianceEnvironmentMap()));
+			shaderArguments.BindTextureSRV(10, RenderBackendTextureSRVDesc::Create(view->scene->GetSkyLight().GetFilteredEnvironmentMap()));
 
 			commandList.Dispatch2D(
 				lightingShader,
@@ -1209,7 +1196,7 @@ void HybridRenderPipeline::SetupRenderGraph(SceneView* view, RenderGraph* render
 
 				ShaderArguments shaderArguments = {};
 				shaderArguments.BindBuffer(0, perFrameDataBuffer, 0);
-				shaderArguments.BindTextureSRV(1, RenderBackendTextureSRVDesc::Create(view->scene->skyLight->environmentMap));
+				shaderArguments.BindTextureSRV(1, RenderBackendTextureSRVDesc::Create(view->scene->GetSkyLight().GetEnvironmentMap()));
 				shaderArguments.PushConstants(0, 0.0f);
 
 				commandList.Draw(

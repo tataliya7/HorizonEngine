@@ -1,9 +1,6 @@
 #include "HorizonExample.h"
 #include "HorizonExampleFirstPersonCameraController.h"
-#include "Daisy/DaisyRenderer.h"
 #include "AudioController.h"
-
-import HorizonEngine.Render.VulkanRenderBackend;
 
 namespace HE
 {
@@ -14,70 +11,76 @@ namespace HE
 
 	HorizonExample::~HorizonExample()
 	{
-		
+
 	}
 
 	void HorizonExample::Setup()
 	{
-		// Create default scene
-		scene = SceneManager::CreateScene("DefaultScene");
+		// Create scene
+		scene = SceneManager::CreateScene("ExampleScene");
 		SceneManager::SetActiveScene(scene);
 
+		scene->SetShouldSimulate(true);
+		scene->SetShouldUpdateScripts(true);
+
 		// Create main camera
-		mainCamera = scene->GetEntityManager()->CreateEntity("MainCamera");
+		mainCamera = scene->CreateEntity("MainCamera");
 		{
 			// When an entity is added to the scene, TransformComponent and SceneHierarchyComponent are automatically created
 			auto& transformComponent = scene->GetEntityManager()->GetComponent<TransformComponent>(mainCamera);
 			transformComponent.position = Vector3(0.0f, 0.0f, 5.0f);
 			transformComponent.rotation = Vector3(0.0f, 0.0f, 0.0f);
 
-			auto& cameraComponent = scene->GetEntityManager()->AddComponent<CameraComponent>(mainCamera);
-			cameraComponent.type = CameraType::Perpective;
+			CameraComponent cameraComponent;
+			cameraComponent.type = CameraComponent::Type::Perpective;
 			cameraComponent.nearPlane = 0.5f;
 			cameraComponent.farPlane = 1000.0f;
 			cameraComponent.fieldOfView = 60.0f;
 			cameraComponent.aspectRatio = 16.0f / 9.0f;
 			cameraComponent.overrideAspectRatio = false;
+			scene->GetEntityManager()->AddComponent<CameraComponent>(mainCamera, cameraComponent);
 
 			// Attach camera controller to main camera
 			scene->GetEntityManager()->AddComponent<ScriptComponent>(mainCamera).Bind<HorizonExampleFirstPersonCameraController>();
-
-			// Add audio listener component to main camera
-			scene->GetEntityManager()->AddComponent<AudioListenerComponent>(mainCamera);
 		}
 
-		// Create directional light
-		EntityHandle directionalLight = scene->GetEntityManager()->CreateEntity("DirectionalLight");
+		// Create main light
+		EntityHandle directionalLight = scene->CreateEntity("DirectionalLight");
 		{
-			auto& directionalLightComponent = scene->GetEntityManager()->AddComponent<DirectionalLightComponent>(directionalLight);
+			DirectionalLightComponent directionalLightComponent;
 			directionalLightComponent.color = Vector4(1.0f);
 			directionalLightComponent.intensity = 1.0f;
+			scene->GetEntityManager()->AddComponent<DirectionalLightComponent>(directionalLight, directionalLightComponent);
 		}
 
 		// Create sky light
-		EntityHandle skyLight = scene->GetEntityManager()->CreateEntity("SkyLight");
+		EntityHandle skyLight = scene->CreateEntity("SkyLight");
 		{
-			auto& skyLightComponent = scene->GetEntityManager()->AddComponent<SkyLightComponent>(skyLight);
+			SkyLightComponent skyLightComponent;
 			skyLightComponent.cubemapResolution = 1024;
 			skyLightComponent.SetCubemap("../../../Assets/HDRIs/HDR_029_Sky_Cloudy_Ref.hdr");
+			scene->GetEntityManager()->AddComponent<SkyLightComponent>(skyLight, skyLightComponent);
 		}
 
 		// Create audio source
-		EntityHandle box = scene->GetEntityManager()->CreateEntity("Box");
+		EntityHandle box = scene->CreateEntity("Box");
 		{
 			auto& transformComponent = scene->GetEntityManager()->GetComponent<TransformComponent>(box);
 			transformComponent.position = Vector3(0.0f, 5.0f, 5.0f);
-			auto& staticMeshComponent = scene->GetEntityManager()->AddComponent<StaticMeshComponent>(box);
+
+			StaticMeshComponent staticMeshComponent;
 			staticMeshComponent.meshSource = "../../../Assets/Models/Box/Box.gltf";
-			auto& audioSourceComponent = scene->GetEntityManager()->AddComponent<AudioSourceComponent>(box);
+			scene->GetEntityManager()->AddComponent<StaticMeshComponent>(box, staticMeshComponent);
+
+			AudioSourceComponent audioSourceComponent;
 			audioSourceComponent.audio = "../../../Assets/Audio/HORIZON.mp3";
+			scene->GetEntityManager()->AddComponent<AudioSourceComponent>(box, audioSourceComponent);
+
 			scene->GetEntityManager()->AddComponent<ScriptComponent>(box).Bind<AudioController>();
 		}
 
 		// TODO: Remove this
-		scene->renderScene = new RenderScene();
-		scene->physicsScene = new PhysicsScene();
-		scene->renderScene->Setup(scene, daisyRenderer);
+		scene->GetRenderScene()->Setup();
 
 		// Create scene view
 		view = new SceneView();
@@ -94,9 +97,7 @@ namespace HE
 	{
 		OPTICK_EVENT();
 
-		scene->physicsScene->Simulate(deltaTime);
 		scene->Update(deltaTime);
-		scene->renderScene->Update(deltaTime);
 	}
 
 	void HorizonExample::OnRender()
@@ -105,7 +106,7 @@ namespace HE
 
 		auto& cameraComponent = scene->GetEntityManager()->GetComponent<CameraComponent>(mainCamera);
 		auto& transformComponent = scene->GetEntityManager()->GetComponent<TransformComponent>(mainCamera);
-		view->scene = scene->renderScene;
+		view->scene = scene->GetRenderScene();
 		view->target = RenderBackendGetActiveSwapChainBuffer(renderBackend, swapChain);
 		view->targetDesc = RenderBackendTextureDesc::Create2D(swapChainWidth, swapChainHeight, PixelFormat::BGRA8Unorm, TextureCreateFlags::Present);
 		view->targetWidth = swapChainWidth;
@@ -113,6 +114,7 @@ namespace HE
 		view->camera.fieldOfView = cameraComponent.fieldOfView;
 		view->camera.zNear = cameraComponent.nearPlane;
 		view->camera.zFar = cameraComponent.farPlane;
+		view->frameIndex = (uint32)GetFrameCounter();
 		if (cameraComponent.overrideAspectRatio)
 		{
 			view->camera.aspectRatio = cameraComponent.aspectRatio;

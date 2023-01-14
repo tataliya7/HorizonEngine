@@ -154,6 +154,11 @@ namespace HE
 	    backend->DestroyTexture(backend->instance, texture);
     }
 
+	void RenderBackendGetTextureReadbackData(RenderBackend* backend, RenderBackendTextureHandle texture, void** data)
+	{
+		backend->GetTextureReadbackData(backend->instance, texture, data);
+	}
+
     RenderBackendTextureSRVHandle RenderBakendCreateTextureSRV(RenderBackend* backend, uint32 deviceMask, const RenderBackendTextureSRVDesc* desc, const char* name)
     {
 	    return backend->CreateTextureSRV(backend->instance, deviceMask, desc, name);

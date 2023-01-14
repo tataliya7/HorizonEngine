@@ -1655,6 +1655,7 @@ export namespace HE
 		void (*DestroyBuffer)(void* instance, RenderBackendBufferHandle buffer);
 		RenderBackendTextureHandle (*CreateTexture)(void* instance, uint32 deviceMask, const RenderBackendTextureDesc* desc, const void* data, const char* name);
 		void (*DestroyTexture)(void* instance, RenderBackendTextureHandle texture);
+		void (*GetTextureReadbackData)(void* instance, RenderBackendTextureHandle texture, void** data);
 		RenderBackendTextureSRVHandle (*CreateTextureSRV)(void* instance, uint32 deviceMask, const RenderBackendTextureSRVDesc* desc, const char* name);
 		int32(*GetTextureSRVDescriptorIndex)(void* instance, uint32 deviceMask, RenderBackendTextureHandle srv);
 		RenderBackendTextureUAVHandle (*CreateTextureUAV)(void* instance, uint32 deviceMask, const RenderBackendTextureUAVDesc* desc, const char* name);
@@ -1692,6 +1693,7 @@ export namespace HE
 	void RenderBackendDestroyBuffer(RenderBackend* backend, RenderBackendBufferHandle buffer);
 	RenderBackendTextureHandle RenderBackendCreateTexture(RenderBackend* backend, uint32 deviceMask, const RenderBackendTextureDesc* desc, const void* data, const char* name);
 	void RenderBackendDestroyTexture(RenderBackend* backend, RenderBackendTextureHandle texture);
+	void RenderBackendGetTextureReadbackData(RenderBackend* backend, RenderBackendTextureHandle texture, void** data);
 	RenderBackendTextureSRVHandle RenderBakendCreateTextureSRV(RenderBackend* backend, uint32 deviceMask, const RenderBackendTextureSRVDesc* desc, const char* name);
 	int32 RenderBackendGetTextureSRVDescriptorIndex(RenderBackend* backend, uint32 deviceMask, RenderBackendTextureHandle srv);
 	RenderBackendTextureUAVHandle RenderBackendCreateTextureUAV(RenderBackend* backend, uint32 deviceMask, const RenderBackendTextureUAVDesc* desc, const char* name);

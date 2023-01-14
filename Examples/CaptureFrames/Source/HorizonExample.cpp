@@ -2,6 +2,9 @@
 #include "HorizonExampleFirstPersonCameraController.h"
 #include "CameraAnimation.h"
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 namespace HE
 {
 	class CameraController : public HorizonExampleFirstPersonCameraController
@@ -76,6 +79,8 @@ namespace HE
 	HorizonExample::HorizonExample()
 	{
 		name = HORIZON_EXAMPLE_NAME;
+		initialWidth = 1280;
+		initialHeight = 720;
 	}
 
 	HorizonExample::~HorizonExample()
@@ -148,7 +153,7 @@ namespace HE
 
 		// Create scene view
 		view = new SceneView();
-		view->captureTargetDescs[0] = RenderBackendTextureDesc::Create2D(1280, 720, PixelFormat::RGBA32Float, TextureCreateFlags::Readback);
+		view->captureTargetDescs[0] = RenderBackendTextureDesc::Create2D(swapChainWidth, swapChainHeight, PixelFormat::RGBA8Unorm, TextureCreateFlags::Readback);
 		view->captureTargets[0] = RenderBackendCreateTexture(renderBackend, ~0u, &view->captureTargetDescs[0], nullptr, "CaptureTarget0");
 	}
 
@@ -197,14 +202,13 @@ namespace HE
 		bool captureFrame = true;
 		if (captureFrame)
 		{
-			// RenderBackendFlushRenderDevices(renderBackend);
-			/*	String outputPath = ASSETS_PATH + "screenshots/" + std::to_string(frameID) + ".png";
-			readbackBuffer->Map();
-			if (!stbi_write_png(outputPath.c_str(), displayResolution.width, displayResolution.height, 4, readbackBuffer->GetData(), 0))
-			{
-				LOG_ERROR("Failed to save screenshot.");
-			}
-			readbackBuffer->Unmap();*/
+			RenderBackendFlushRenderDevices(renderBackend);
+
+			std::string outputPath = "../../../../Frames/" + std::to_string(GetFrameCounter()) + ".png";
+			void* data = nullptr;
+			RenderBackendGetTextureReadbackData(renderBackend, view->captureTargets[0], &data);
+
+			stbi_write_png(outputPath.c_str(), 1280, 720, 4, data, 0);
 		}
 	}
 }

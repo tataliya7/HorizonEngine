@@ -25,6 +25,7 @@ project "RigidBody"
         "Input",
         "Daisy",
         "Scene",
+        "Audio",
         "VulkanRenderBackend",
         "DxcShaderCompiler",
         "HybridRenderPipeline",

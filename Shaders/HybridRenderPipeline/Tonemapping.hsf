@@ -66,5 +66,6 @@ void TonemappingCS(uint3 GlobalInvocationID : SV_DispatchThreadID)
     float3 ldrColor = Tonemap(hdrColor.rgb / hdrColor.a, exposure);
     float3 outColor = GammaCorrection(ldrColor, gamma);
 
-	finalTexture[coord] = float4(outColor, Luma(outColor));
+	//finalTexture[coord] = float4(outColor, Luma(outColor));
+    finalTexture[coord] = float4(outColor, Luma(outColor));
 }

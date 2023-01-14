@@ -1269,11 +1269,7 @@ void HybridRenderPipeline::SetupRenderGraph(SceneView* view, RenderGraph* render
 		renderGraph->AddPass("CapturePass", RenderGraphPassFlags::NeverGetCulled,
 		[&](RenderGraphBuilder& builder)
 		{
-			const auto& perFrameData = blackboard.Get<RenderGraphPerFrameData>();
-			const auto& sceneColorData = blackboard.Get<RenderGraphSceneColor>();
-			auto& finalTextureData = blackboard.Get<RenderGraphFinalTexture>();
-
-			auto finalTexture = builder.ReadTexture(finalTextureData.finalTexture, RenderBackendResourceState::CopySrc);
+			ldrTexture = builder.ReadTexture(ldrTexture, RenderBackendResourceState::CopySrc);
 			captureTarget0 = builder.WriteTexture(captureTarget0, RenderBackendResourceState::CopyDst);
 
 			return [=](RenderGraphRegistry& registry, RenderCommandList& commandList)
@@ -1282,7 +1278,7 @@ void HybridRenderPipeline::SetupRenderGraph(SceneView* view, RenderGraph* render
 				uint32 height = perFrameData.data.targetResolutionHeight;
 
 				commandList.CopyTexture2D(
-					registry.GetRenderBackendTexture(finalTexture),
+					registry.GetRenderBackendTexture(ldrTexture),
 					{ 0, 0 }, 
 					0,
 					registry.GetRenderBackendTexture(captureTarget0),

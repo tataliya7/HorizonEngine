@@ -231,6 +231,7 @@ struct VulkanCpuReadbackBuffer
 	VkBuffer handle;
 	uint32 mipOffsets[MaxNumTextureMipLevels];
 	uint32 mipSize[MaxNumTextureMipLevels];
+	void* data;
 };
 
 struct VulkanTexture
@@ -1492,11 +1493,13 @@ uint32 VulkanDevice::CreateTexture(const RenderBackendTextureDesc* desc, const v
 
 		VmaAllocationCreateInfo memoryInfo = {
 			.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
-			.usage = VMA_MEMORY_USAGE_CPU_ONLY,
+			.usage = VMA_MEMORY_USAGE_GPU_TO_CPU,
 		};
 
 		VmaAllocationInfo allocationInfo = {};
 		VK_CHECK(vmaCreateBuffer(vmaAllocator, &bufferInfo, &memoryInfo, &texture.cpuReadbackBuffer->handle, &texture.allocation, &allocationInfo));
+
+		VK_CHECK(vmaMapMemory(vmaAllocator, texture.allocation, &texture.cpuReadbackBuffer->data));
 
 		return textureIndex;
 	}
@@ -4213,71 +4216,43 @@ static void BuildCommandBuffer(BuildCommandBufferJobData* data)
 	}
 }
 
-#define COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandStructType)                                         \
-bool Compile##RenderCommandStructType(VulkanRenderCommandListContext* context, void* command)            \
-{	                                                                                                     \
-	return context->CompileRenderCommand(*reinterpret_cast<const RenderCommandStructType*>(command));    \
-}
-
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandCopyBuffer);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandCopyTexture);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandUpdateBuffer);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandUpdateTexture);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandBarriers);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandTransitions);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandBeginTimingQuery);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandEndTimingQuery);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandResetTimingQueryHeap);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandDispatch);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandDispatchIndirect);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandUpdateBottomLevelAS);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandUpdateTopLevelAS);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandTraceRays);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandSetViewport);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandSetScissor);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandBeginRenderPass);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandEndRenderPass);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandDraw);
-COMPILE_RENDER_COMMAND_FUNCTION(RenderCommandDrawIndirect);
-
-/**
- * Jump table of compile command functions.
- */
-bool (*gCompileRenderCommandFunctions[])(VulkanRenderCommandListContext*, void*) = {
-    CompileRenderCommandCopyBuffer,
-    CompileRenderCommandCopyTexture,
-    CompileRenderCommandUpdateBuffer,
-    CompileRenderCommandUpdateTexture,
-    CompileRenderCommandBarriers,
-    CompileRenderCommandTransitions,
-    CompileRenderCommandBeginTimingQuery,
-    CompileRenderCommandEndTimingQuery,
-    CompileRenderCommandResetTimingQueryHeap,
-    CompileRenderCommandDispatch,
-    CompileRenderCommandDispatchIndirect,
-    CompileRenderCommandUpdateBottomLevelAS,
-    CompileRenderCommandUpdateTopLevelAS,
-    CompileRenderCommandTraceRays,
-    CompileRenderCommandSetViewport,
-    CompileRenderCommandSetScissor,
-    CompileRenderCommandBeginRenderPass,
-    CompileRenderCommandEndRenderPass,
-    CompileRenderCommandDraw,
-    CompileRenderCommandDrawIndirect,
-};
-static_assert(ARRAY_SIZE(gCompileRenderCommandFunctions) == (int)RenderCommandType::Count);
-
 bool VulkanRenderCommandListContext::CompileRenderCommands(const RenderCommandContainer& container)
 {
-#define COMPILE_RENDER_COMMAND(type, command) gCompileRenderCommandFunctions[(int)type](this, command)
+#define COMPILE_RENDER_COMMAND(command, RenderCommandStruct)                             \
+	case RenderCommandStruct::Type:                                                      \
+	if (!CompileRenderCommand(*reinterpret_cast<const RenderCommandStruct*>(command)))   \
+	{                                                                                    \
+		return false;                                                                    \
+	}                                                                                    \
+	break;
+
 	for (uint32 i = 0; i < container.numCommands; i++)
 	{
-		if (!COMPILE_RENDER_COMMAND(container.types[i], container.commands[i]))
+		switch (container.types[i])
 		{
-			return false;
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandCopyBuffer);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandCopyTexture);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandUpdateBuffer);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandUpdateTexture);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandBarriers);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandTransitions);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandBeginTimingQuery);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandEndTimingQuery);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandResetTimingQueryHeap);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandDispatch);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandDispatchIndirect);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandUpdateBottomLevelAS);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandUpdateTopLevelAS);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandTraceRays);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandSetViewport);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandSetScissor);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandBeginRenderPass);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandEndRenderPass);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandDraw);
+		COMPILE_RENDER_COMMAND(container.commands[i], RenderCommandDrawIndirect);
 		}
 	}
-#undef COMPILE_RENDER_COMMAND_MACRO
+#undef COMPILE_RENDER_COMMAND
 	return true;
 }
 
@@ -4321,11 +4296,13 @@ static void DestroyRenderDevices(void* instance)
 static void FlushRenderDevices(void* instance)
 {
 	VulkanRenderBackend* backend = (VulkanRenderBackend*)instance;
-	for (uint32 deviceIndex = 0; deviceIndex < backend->numDevices; deviceIndex++)
+	VulkanDevice& device = backend->devices[0];
+	vkDeviceWaitIdle(device.handle);
+	/*for (uint32 deviceIndex = 0; deviceIndex < backend->numDevices; deviceIndex++)
 	{
 		VulkanDevice& device = backend->devices[deviceIndex];
 		vkDeviceWaitIdle(device.handle);
-	}
+	}*/
 }
 
 static void Tick(void* instance)
@@ -4974,7 +4951,6 @@ static int32 GetTextureUAVDescriptorIndex(void* instance, uint32 deviceMask, Ren
 	return device.GetTextureUAVDescriptorIndex(textureIndex, 0);
 }
 
-
 RenderBackendRayTracingPipelineStateHandle CreateRayTracingPipelineState(void* instance, uint32 deviceMask, const RenderBackendRayTracingPipelineStateDesc* desc, const char* name)
 {
 	VulkanRenderBackend* backend = (VulkanRenderBackend*)instance;
@@ -5159,6 +5135,17 @@ RenderBackendBufferHandle CreateRayTracingShaderBindingTable(void* instance, uin
 	return handle;
 }
 
+static void GetTextureReadbackData(void* instance, RenderBackendTextureHandle handle, void** data)
+{
+	VulkanRenderBackend* backend = (VulkanRenderBackend*)instance;
+	VulkanDevice& device = backend->devices[0];
+
+	uint32 index = device.GetRenderBackendHandleRepresentation(handle.GetIndex());
+	VulkanTexture& texture = device.textures[index];
+
+	*data = texture.cpuReadbackBuffer->data;
+}
+
 }
 
 namespace HE
@@ -5190,6 +5177,7 @@ namespace HE
 			.DestroyBuffer = DestroyBuffer,
 			.CreateTexture = CreateTexture,
 			.DestroyTexture = DestroyTexture,
+			.GetTextureReadbackData = GetTextureReadbackData,
 			.CreateTextureSRV = CreateTextureSRV,
 			.GetTextureSRVDescriptorIndex = GetTextureSRVDescriptorIndex,
 			.CreateTextureUAV = CreateTextureUAV,

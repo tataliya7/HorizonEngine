@@ -94,6 +94,7 @@ filter "platforms:Win64"
         "_SILENCE_CXX23_ALIGNED_STORAGE_DEPRECATION_WARNING",
         --"DEBUG_ONLY_RAY_TRACING_ENBALE=1",
         "USE_OPTICK=0",
+        "HE_DISABLE_MODULE=0",
     }
     staticruntime "On"
     architecture "x64"

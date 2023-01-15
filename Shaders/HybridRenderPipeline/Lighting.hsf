@@ -4,73 +4,17 @@
 #include "HybridRenderPipelineCommon.hsf"
 #include "CascadedShadowMapCommon.hsf"
 
-#define LIGHTING_SHADER_PER_FRAME_DATA_SLOT                              0
-#define LIGHTING_SHADER_GBUFFER0_SRV_SLOT                                1
-#define LIGHTING_SHADER_GBUFFER1_SRV_SLOT                                2
-#define LIGHTING_SHADER_GBUFFER2_SRV_SLOT                                3
-#define LIGHTING_SHADER_GBUFFER3_SRV_SLOT                                4
-#define LIGHTING_SHADER_AMBIENT_OCCLUSION_TEXTURE_SRV_SLOT               5
-#define LIGHTING_SHADER_SHADOW_MASK_SRV_SLOT                             6
-#define LIGHTING_SHADER_SCENE_COLOR_UAV_SLOT                             7
-#define LIGHTING_SHADER_BRDF_LUT_SRV_SLOT                                8
-#define LIGHTING_SHADER_SKY_LIGHT_IRRADIANCE_ENVIRONMENT_MAP_SRV_SLOT    9
-#define LIGHTING_SHADER_SKY_LIGHT_FILTERED_ENVIRONMENT_MAP_SRV_SLOT      10
-
-PerFrameData GetPerFrameData()
-{
-    uint bufferIndex = SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_PER_FRAME_DATA_SLOT);
-    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<PerFrameData>(bufferIndex & 0xffff);
-}
-
-Texture2D GetGBuffer0SRV()
-{
-    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_GBUFFER0_SRV_SLOT)];
-}
-
-Texture2D GetGBuffer1SRV()
-{
-    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_GBUFFER1_SRV_SLOT)];
-}
-
-Texture2D GetGBuffer2SRV()
-{
-    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_GBUFFER2_SRV_SLOT)];
-}
-
-Texture2D GetGBuffer3SRV()
-{
-    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_GBUFFER3_SRV_SLOT)];
-}
-
-Texture2D GetAmbientOcclusionTextureSRV()
-{
-    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_AMBIENT_OCCLUSION_TEXTURE_SRV_SLOT)];
-}
-
-Texture2D GetShadowMaskSRV()
-{
-    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_SHADOW_MASK_SRV_SLOT)];
-}
-
-RWTexture2D<float4> GetSceneColorUAV()
-{
-    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_SCENE_COLOR_UAV_SLOT)];
-}
-
-Texture2D GetBRDFLutSRV()
-{
-    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_BRDF_LUT_SRV_SLOT)];
-}
-
-TextureCube GetSkyLightIrradianceEnvironmentMapSRV()
-{
-    return BindlessTextureCubes[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_SKY_LIGHT_IRRADIANCE_ENVIRONMENT_MAP_SRV_SLOT)];
-}
-
-TextureCube GetSkyLightFilteredEnvironmentMapSRV()
-{
-    return BindlessTextureCubes[SHADER_ARGUMENTS_INDEX(LIGHTING_SHADER_SKY_LIGHT_FILTERED_ENVIRONMENT_MAP_SRV_SLOT)];
-}
+BIND_BUFFER_ELEMENT(0, PerFrameData, PerFrameData);
+BIND_TEXTURE_2D_SRV(1, GBuffer0);
+BIND_TEXTURE_2D_SRV(2, GBuffer1);
+BIND_TEXTURE_2D_SRV(3, GBuffer2);
+BIND_TEXTURE_2D_SRV(4, GBuffer3);
+BIND_TEXTURE_2D_SRV(5, AmbientOcclusionTexture);
+BIND_TEXTURE_2D_SRV(6, ShadowMask);
+BIND_TEXTURE_2D_SRV(8, BRDFLut);
+BIND_TEXTURE_2D_UAV(7, SceneColor);
+BIND_TEXTURE_CUBE_SRV(9, SkyLightIrradianceEnvironmentMap);
+BIND_TEXTURE_CUBE_SRV(10, SkyLightFilteredEnvironmentMap);
 
 struct Surface
 {

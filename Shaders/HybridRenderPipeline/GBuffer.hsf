@@ -98,9 +98,10 @@ Texture2D GetEmissiveMap(uint emissiveMapIndex)
 
 struct GBufferVSToPS
 {
-    float4 clipPosition : SV_POSITION;
-    float4 prevClipPosition : POSITION0;
-    float3 worldPosition : POSITION1;
+    float4 svPosition : SV_POSITION; // @note: do not use svPosition in pixel shader!
+    float4 clipPosition : POSITION0;
+    float4 prevClipPosition : POSITION1;
+    float3 worldPosition : POSITION2;
     float3 worldNormal : NORMAL0;
     float2 texCoord0 : TEXCOORD0;
     float3x3 tangentSpace : TANGENT;
@@ -127,6 +128,7 @@ void GBufferVS(uint vertexIndex : SV_VertexID, out GBufferVSToPS output)
     float4 prevWorldPosition = mul(float4(localPosition, 1.0), prevWorldMatrix);
     float4 prevClipPosition = mul(prevWorldPosition, perFrameData.prevViewProjectionMatrix);
 
+    output.svPosition = clipPosition;
     output.clipPosition = clipPosition;
     output.prevClipPosition = prevClipPosition;
     output.worldPosition = worldPosition;
@@ -195,7 +197,7 @@ void GBufferPS(GBufferVSToPS input, out GBufferData gbufferData)
     }
 
     float4 clipPosition = input.clipPosition;
-    float linearDepth01 = clipPosition.z / clipPosition.w;
+    float linearDepth01 = LinearDepth01(clipPosition.z / clipPosition.w, perFrameData.nearPlane, perFrameData.farPlane);
 
     float2 currUV = (clipPosition.xy / clipPosition.w) * 0.5 + 0.5;
     float2 prevUV = (input.prevClipPosition.xy / input.prevClipPosition.w) * 0.5 + 0.5;

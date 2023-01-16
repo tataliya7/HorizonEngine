@@ -28,7 +28,7 @@ Inspired by [Halcyon](https://www.ea.com/seed/news/khronos-munich-2018-halcyon-v
 
 ![image](/Docs/daisy_architecture.png)
 
-Implemented features:
+Features:
  - [x] Modularization using C++20 modules
  - [x] Fiber-Based Job System
  - [x] Bindless
@@ -40,7 +40,8 @@ Implemented features:
  - [x] Physics Engine Integration (PhysX)
  - [x] Sound Engine Integration (miniaudio)
 
-Main features to come:
+Roadmap:
+ - [ ] Super Resolution Algorithms (DLSS 2, FSR 2, etc)
  - [ ] Visibility Buffer (Also Called Deferred Texturing or Deferred Material Shading)
  - [ ] Surfle GI
  - [ ] Native Graphics API Support (Direct3D 12, Metal 2)
@@ -116,6 +117,12 @@ See [here]() for more examples.
 * [miniaudio](https://github.com/mackron/miniaudio)
 
 ## Documentation
+
+[Reference Manual](https://harukumo.github.io/HorizonEngine/)
+
+API Specification
+
+Programming Guide
 
 Q&A:
 

@@ -17,6 +17,7 @@ struct PerFrameData
 	float4x4 viewProjectionMatrix;
 	float4x4 invViewProjectionMatrix;
 	float4x4 prevViewProjectionMatrix;
+	float4x4 prevInvViewProjectionMatrix;
 	uint renderResolutionWidth;
 	uint renderResolutionHeight;
 	uint targetResolutionWidth;
@@ -53,29 +54,4 @@ float LinearDepth01(float depth, float near, float far)
 	float x = -1.0 + far / near;
 	float y = 1.0;
 	return 1.0 / (x * depth + y);
-}
-
-#define BIND_BUFFER_ELEMENT(slot, name, type) \
-type Get##name() \
-{ \
-    uint bufferIndex = SHADER_ARGUMENTS_INDEX(slot); \
-    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<type>(bufferIndex & 0xffff); \
-}
-
-#define BIND_TEXTURE_2D_SRV(slot, name) \
-Texture2D Get##name##SRV() \
-{ \
-    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(slot)]; \
-}
-
-#define BIND_TEXTURE_CUBE_SRV(slot, name) \
-TextureCube Get##name##SRV() \
-{ \
-    return BindlessTextureCubes[SHADER_ARGUMENTS_INDEX(slot)]; \
-}
-
-#define BIND_TEXTURE_2D_UAV(slot, name) \
-RWTexture2D<float4> Get##name##UAV() \
-{ \
-    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(slot)]; \
 }

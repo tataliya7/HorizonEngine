@@ -37,6 +37,31 @@ struct ShaderArguments
 #define SHADER_ARGUMENTS_INDEX(slot) SHADER_ARGUMENTS.indices[slot]
 #define SHADER_ARGUMENTS_DATA(slot) SHADER_ARGUMENTS.data[slot]
 
+#define BIND_BUFFER_ELEMENT(slot, name, type) \
+type Get##name() \
+{ \
+    uint bufferIndex = SHADER_ARGUMENTS_INDEX(slot); \
+    return BindlessBuffers[(bufferIndex >> 16) & 0xffff].Load<type>(bufferIndex & 0xffff); \
+}
+
+#define BIND_TEXTURE_2D_SRV(slot, name) \
+Texture2D Get##name##SRV() \
+{ \
+    return BindlessTexture2Ds[SHADER_ARGUMENTS_INDEX(slot)]; \
+}
+
+#define BIND_TEXTURE_CUBE_SRV(slot, name) \
+TextureCube Get##name##SRV() \
+{ \
+    return BindlessTextureCubes[SHADER_ARGUMENTS_INDEX(slot)]; \
+}
+
+#define BIND_TEXTURE_2D_UAV(slot, name) \
+RWTexture2D<float4> Get##name##UAV() \
+{ \
+    return BindlessRWTexture2Ds[SHADER_ARGUMENTS_INDEX(slot)]; \
+}
+
 #define SAMPLER_LINEAR_CLAMP                    BindlessSamplerStates[0]
 #define SAMPLER_LINEAR_WARP                     BindlessSamplerStates[1]
 #define SAMPLER_COMPARISON_GREATER_LINEAR_CLAMP BindlessSamplerStates[2]

@@ -21,10 +21,11 @@
 # Shader files
 !*.hsf
 
-# Text files
+# Doc files
 !*.txt
 !*.md
 !*.pptx
+!*.html
 
 # Script files
 !*.bat

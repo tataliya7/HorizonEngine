@@ -107,7 +107,6 @@ See [here]() for more examples.
 * [D3D12MemoryAllocator](https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator)
 * [OpenEXR](https://github.com/AcademySoftwareFoundation/openexr)
 * [yaml-cpp](https://github.com/jbeder/yaml-cpp)
-* [LLVM](https://github.com/llvm/llvm-project)
 * [MPMCQueue](https://github.com/rigtorp/MPMCQueue)
 * [PhysX](https://github.com/NVIDIAGameWorks/PhysX)
 * [OptiX](https://developer.nvidia.com/rtx/ray-tracing/optix)

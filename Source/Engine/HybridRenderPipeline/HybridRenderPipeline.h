@@ -72,6 +72,7 @@ private:
 	RenderBackendTextureHandle iblSpecularLut;
 	
 	RenderGraphPersistentTexture historyBufferCache;
+	RenderGraphPersistentTexture historyDepthBufferCache;
 	RenderGraphPersistentTexture prevLinearDepthBufferRB;
 	RenderGraphPersistentTexture prevIllumRB;
 	RenderGraphPersistentTexture prevMomentsRB;
@@ -104,6 +105,7 @@ private:
 	RenderBackendShaderHandle svgfReprojectCS;
 	RenderBackendShaderHandle svgfFilterMomentsCS;
 	RenderBackendShaderHandle svgfAtrousCS;
+	RenderBackendShaderHandle captureFrameCS;
 
 	SkyAtmosphere* skyAtmosphere;
 };
